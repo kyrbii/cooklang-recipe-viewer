@@ -610,14 +610,14 @@ function renderMelaStepItems(
           key={idx}
           onClick={() => {
             addTimer(
-              item.name || `${recipeName} - Step ${stepNumber}`,
+              item.name || `${recipeName} - Schritt ${stepNumber}`,
               item.totalSeconds || 60,
               undefined,
               stepNumber
             );
           }}
           className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-[#DE5D4E] hover:underline decoration-dotted underline-offset-4 active:scale-95 transition-all"
-          title="Tap to start timer"
+          title="Timer starten"
         >
           <Clock className="w-3 h-3 text-[#DE5D4E]" />
           <span>{String(item.quantity)} {item.units}</span>

@@ -36,7 +36,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   onAddRecipe
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Alle');
   const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +84,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       }
     });
     const sorted = Array.from(set).sort();
-    const result = ['All'];
+    const result = ['Alle'];
     if (favorites.length > 0) {
       result.push('Favoriten');
     }
@@ -99,7 +99,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       // Favorites filter
       if (selectedCategory === 'Favoriten') {
         if (!favorites.includes(r.id)) return false;
-      } else if (selectedCategory !== 'All') {
+      } else if (selectedCategory !== 'Alle') {
         // Category filter
         const inFolder = r.folder?.toLowerCase() === selectedCategory.toLowerCase();
         let inTags = false;
@@ -138,11 +138,11 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       <div className="flex items-center justify-between pt-2 pb-3">
         <div>
           <h1 className="font-mela-serif text-3xl sm:text-4xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-            {selectedCategory === 'All' ? 'Recipes' : selectedCategory}
+            {selectedCategory === 'Alle' ? 'Rezepte' : selectedCategory}
           </h1>
           <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 flex items-center gap-1.5">
             <span>
-              {recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'}
+              {recipes.length} {recipes.length === 1 ? 'Rezept' : 'Rezepte'}
             </span>
             <span className="text-stone-300 dark:text-stone-700">•</span>
             <span className="inline-flex items-center gap-1">
@@ -204,7 +204,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             onClick={onSync}
             disabled={isSyncing}
             className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
-            title="Sync recipes with Cook CLI server"
+            title="Rezepte mit Cook CLI Server synchronisieren"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#DE5D4E]' : ''}`} />
           </button>
@@ -213,7 +213,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           <button
             onClick={onOpenSettings}
             className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform cursor-pointer"
-            title="Settings & Cook CLI Server"
+            title="Einstellungen & Cook CLI Server"
           >
             <MoreHorizontal className="w-5 h-5" />
           </button>
@@ -332,8 +332,8 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             ))}
           </div>
         ) : (
-          /* List Mode (Clean Rows with healthy margins) */
-          <div className="flex flex-col gap-2">
+          /* List Mode (Clean distinct rows with clear separation) */
+          <div className="flex flex-col gap-3 sm:gap-3.5">
             {filteredRecipes.map((recipe) => (
               <RecipeRow
                 key={recipe.id || recipe.path}
@@ -470,9 +470,9 @@ const RecipeRow: React.FC<{
   return (
     <div
       onClick={onClick}
-      className="py-4 px-3 sm:px-4 my-0.5 flex items-center gap-4 cursor-pointer active:opacity-75 transition-all hover:bg-white dark:hover:bg-[#1A1816] rounded-2xl border border-transparent hover:border-stone-200/80 dark:hover:border-stone-800/80 hover:shadow-xs group"
+      className="p-3.5 sm:p-4 flex items-center gap-4 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group"
     >
-      <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative">
+      <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
         {recipe.image ? (
           <img
             src={recipe.image}
@@ -481,7 +481,7 @@ const RecipeRow: React.FC<{
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-stone-200 dark:bg-stone-800 text-stone-400">
+          <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800 text-stone-400">
             <Tag className="w-6 h-6 opacity-40" />
           </div>
         )}
@@ -494,26 +494,27 @@ const RecipeRow: React.FC<{
 
         <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400 mt-1">
           {time && (
-            <span className="flex items-center gap-1 font-medium text-stone-700 dark:text-stone-300">
+            <span className="flex items-center gap-1 font-medium text-stone-700 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-md">
               <Clock className="w-3 h-3 text-[#DE5D4E]" />
               <span>{String(time)}</span>
             </span>
           )}
 
-          {time && category && <span>•</span>}
-
-          {category && <span className="capitalize">{category}</span>}
+          {category && (
+            <span className="capitalize px-2 py-0.5 rounded-md bg-stone-100/70 dark:bg-stone-800/60 text-stone-600 dark:text-stone-400 text-[11px] font-medium">
+              {category}
+            </span>
+          )}
 
           {author && (
-            <>
-              <span>•</span>
-              <span className="truncate">{author}</span>
-            </>
+            <span className="truncate hidden sm:inline text-stone-400 dark:text-stone-500 text-[11px]">
+              {author}
+            </span>
           )}
         </div>
 
         {recipe.metadata.description && (
-          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-1 leading-relaxed">
+          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-1.5 leading-relaxed">
             {String(recipe.metadata.description)}
           </p>
         )}
@@ -523,12 +524,16 @@ const RecipeRow: React.FC<{
       <button
         type="button"
         onClick={onToggleFavorite}
-        className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors shrink-0 cursor-pointer"
+        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+          isFavorite
+            ? 'bg-rose-50 dark:bg-rose-950/40 text-[#DE5D4E]'
+            : 'text-stone-300 dark:text-stone-600 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+        }`}
         title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
       >
         <Heart
           className={`w-4 h-4 ${
-            isFavorite ? 'fill-[#DE5D4E] text-[#DE5D4E]' : 'text-stone-300 dark:text-stone-700'
+            isFavorite ? 'fill-[#DE5D4E] text-[#DE5D4E]' : ''
           }`}
         />
       </button>

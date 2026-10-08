@@ -128,7 +128,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800">
           <div className="flex items-center gap-2">
             <span className="font-mela-serif text-lg font-bold text-stone-900 dark:text-stone-100">
-              Settings & Cook CLI
+              Einstellungen & Cook CLI
             </span>
           </div>
           <button
@@ -161,7 +161,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                     status === 'connected' ? 'bg-emerald-500' : 'bg-stone-400'
                   }`}
                 />
-                <span className="capitalize">{status}</span>
+                <span>{status === 'connected' ? 'Verbunden' : status === 'checking' ? 'Prüfe...' : 'Offline'}</span>
               </span>
             </div>
 
@@ -181,7 +181,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                 className="flex-1 h-10 px-4 rounded-xl bg-[#DE5D4E] hover:bg-[#cf5142] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Syncing...' : 'Sync Recipes Now'}</span>
+                <span>{isSyncing ? 'Synchronisiere...' : 'Rezepte jetzt synchronisieren'}</span>
               </button>
 
               {/* Test Connection Button */}
@@ -191,14 +191,14 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                 className="h-10 px-3.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-medium hover:bg-stone-300 dark:hover:bg-stone-700 flex items-center gap-1.5 active:scale-95"
               >
                 <Wifi className="w-3.5 h-3.5" />
-                <span>{isTesting ? 'Testing...' : 'Test'}</span>
+                <span>{isTesting ? 'Prüfe...' : 'Testen'}</span>
               </button>
 
               <button
                 onClick={() => setServerUrl(DEFAULT_SERVER_URL)}
                 className="h-10 px-3 rounded-xl bg-stone-200/60 dark:bg-stone-800/60 text-stone-600 dark:text-stone-400 text-xs font-medium hover:bg-stone-300 dark:hover:bg-stone-700"
               >
-                Reset
+                Zurücksetzen
               </button>
             </div>
 
@@ -308,30 +308,30 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center justify-between">
             <div>
               <span className="text-sm font-semibold text-stone-800 dark:text-stone-200">
-                Appearance
+                Erscheinungsbild
               </span>
-              <p className="text-xs text-stone-500">Mela warm ivory or dark slate</p>
+              <p className="text-xs text-stone-500">Warmes Elfenbein oder dunkles Schiefergrau</p>
             </div>
             <button
               onClick={handleToggleTheme}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-medium cursor-pointer active:scale-95 transition-transform"
             >
               {theme === 'dark' ? <Moon className="w-3.5 h-3.5 text-[#DE5D4E]" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
-              <span className="capitalize">{theme}</span>
+              <span>{theme === 'dark' ? 'Dunkel' : 'Hell'}</span>
             </button>
           </div>
 
           {/* Cache Management */}
           <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 block">
-              Offline Storage
+              Offline-Speicher
             </span>
             <button
               onClick={handleClearCache}
               className="px-3 py-2 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-medium flex items-center gap-1.5 hover:bg-stone-300 active:scale-95"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear Offline Cache</span>
+              <span>Offline-Cache leeren</span>
             </button>
           </div>
 
@@ -339,10 +339,10 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           <div className="p-3 rounded-xl bg-stone-100 dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800/80 text-[11px] text-stone-500 dark:text-stone-400 space-y-1">
             <div className="font-semibold text-stone-700 dark:text-stone-300 flex items-center gap-1">
               <Terminal className="w-3.5 h-3.5 text-[#DE5D4E]" />
-              <span>How Sync Works:</span>
+              <span>So funktioniert die Synchronisation:</span>
             </div>
             <p>
-              When your Cook CLI server is running (e.g. <code>cook server</code>), recipes automatically sync when opening the app or pulling down to refresh. Tap <strong>Sync Recipes Now</strong> above to instantly load any new or edited <code>.cook</code> files.
+              Wenn dein Cook CLI Server läuft (z. B. <code>cook server</code>), werden Rezepte beim Öffnen der App automatisch synchronisiert. Klicke oben auf <strong>Rezepte jetzt synchronisieren</strong>, um neue oder bearbeitete <code>.cook</code>-Dateien sofort zu laden.
             </p>
           </div>
         </div>

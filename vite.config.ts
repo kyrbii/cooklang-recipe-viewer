@@ -30,9 +30,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-maskable.svg'],
       manifest: {
-        name: 'Cook Recipe Reader',
-        short_name: 'Cook',
-        description: 'Mobile-first PWA for Cook CLI recipes',
+        name: 'Rezepte',
+        short_name: 'Rezepte',
+        description: 'Mobile-first PWA für Cooklang Rezepte',
         theme_color: '#FAF8F5',
         background_color: '#FAF8F5',
         display: 'standalone',

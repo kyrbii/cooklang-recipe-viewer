@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Mela Recipes</title>
+    
+    <!-- PWA & Mobile Meta Tags -->
+    <meta name="description" content="Clean, elegant recipe reader inspired by Mela" />
+    <meta name="theme-color" content="#FAF8F5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Mela" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
+    <link rel="apple-touch-icon" href="/pwa-icon.svg" />
+    
+    <!-- Google Fonts: Lora (Mela-like editorial serif) and Inter (clean UI sans) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,400;1,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#FAF8F5] text-stone-900 dark:bg-[#121110] dark:text-stone-100 min-h-screen antialiased select-none transition-colors duration-200">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

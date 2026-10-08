@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b" />
+      <stop offset="100%" stop-color="#09090b" />
+    </linearGradient>
+    <linearGradient id="flame-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f97316" />
+      <stop offset="50%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#facc15" />
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#c2410c" />
+    </linearGradient>
+  </defs>
+
+  <!-- Base background with rounded corners -->
+  <rect width="512" height="512" rx="112" fill="url(#bg-grad)" />
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#27272a" stroke-width="4" />
+
+  <!-- Chef Hat / Pot Glow -->
+  <circle cx="256" cy="256" r="160" fill="#f97316" opacity="0.12" />
+
+  <!-- Cooking Pan / Cloche Symbol -->
+  <g transform="translate(106, 120)">
+    <!-- Steam / Warmth Lines -->
+    <path d="M120 40 C110 15, 130 0, 120 -20" stroke="url(#flame-grad)" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M150 45 C140 20, 160 5, 150 -15" stroke="url(#flame-grad)" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.95"/>
+    <path d="M180 40 C170 15, 190 0, 180 -20" stroke="url(#flame-grad)" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.85"/>
+
+    <!-- Pan Rim & Bowl -->
+    <path d="M20 150 C20 220, 78 260, 150 260 C222 260, 280 220, 280 150 Z" fill="url(#accent-grad)" />
+    
+    <!-- Pan Rim Highlight -->
+    <ellipse cx="150" cy="150" rx="130" ry="24" fill="#fb923c" />
+    <ellipse cx="150" cy="150" rx="116" ry="18" fill="#18181b" />
+
+    <!-- Utensils Crossed Inside: Chef Knife & Spoon -->
+    <path d="M110 120 L190 180" stroke="#f43f5e" stroke-width="14" stroke-linecap="round" />
+    <path d="M190 120 L110 180" stroke="#facc15" stroke-width="14" stroke-linecap="round" />
+    <circle cx="150" cy="150" r="14" fill="#ffffff" />
+
+    <!-- Pan Handle -->
+    <rect x="270" y="142" width="60" height="16" rx="8" fill="#71717a" />
+  </g>
+</svg>

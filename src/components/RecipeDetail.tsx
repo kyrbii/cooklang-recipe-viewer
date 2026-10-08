@@ -401,8 +401,8 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
           </div>
         </div>
 
-        {/* Right Column (Desktop): Ingredients & Portions scaler STICKY on the right */}
-        <div className="contents lg:block lg:col-span-5 xl:col-span-4 lg:sticky lg:top-20 lg:self-start">
+        {/* Right Column (Desktop): Ingredients & Portions scaler on the right (natural continuous scroll) */}
+        <div className="contents lg:block lg:col-span-5 xl:col-span-4">
           <div className="order-2 lg:order-none space-y-5 pt-4 lg:pt-0 lg:bg-stone-100/60 dark:lg:bg-stone-900/50 lg:p-6 lg:rounded-3xl lg:border lg:border-stone-200/70 dark:lg:border-stone-800/80">
             {/* Ingredients Header */}
             <div className="flex items-center justify-between pb-1 border-b border-stone-200/70 dark:border-stone-800/80">

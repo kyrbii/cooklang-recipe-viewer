@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Clock, Play, Pause, X } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from './types/cook';
 import { cookApi } from './services/cookApi';
 import { RecipeList } from './components/RecipeList';
@@ -6,7 +7,13 @@ import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeEditor } from './components/RecipeEditor';
 import { SettingsSheet } from './components/SettingsSheet';
 import { AddRecipeModal } from './components/AddRecipeModal';
-import { TimerProvider } from './context/TimerContext';
+import { TimerProvider, useTimers } from './context/TimerContext';
+
+function formatRemaining(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
 
 const MelaApp: React.FC = () => {
   const [recipes, setRecipes] = useState<Recipe[]>(() => cookApi.getCachedRecipes());
@@ -17,6 +24,8 @@ const MelaApp: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>(() => cookApi.getStatus());
+
+  const { timers, pauseTimer, startTimer, removeTimer } = useTimers();
 
   // Initialize theme and status listeners
   useEffect(() => {
@@ -86,6 +95,67 @@ const MelaApp: React.FC = () => {
           />
         )}
       </main>
+
+      {/* Floating Active Timers Bar (Visible across whole app when timers are running or completed) */}
+      {timers.length > 0 && (
+        <aside aria-label="Aktive Koch-Timer" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-md w-[calc(100%-2rem)] flex flex-col gap-2 pointer-events-none">
+          {timers.map((timer) => {
+            const isFinished = timer.remainingSeconds === 0;
+            return (
+              <div
+                key={timer.id}
+                className={`pointer-events-auto p-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border transition-all animate-slideUp ${
+                  isFinished
+                    ? 'bg-rose-500 text-white border-rose-600 animate-pulse'
+                    : 'bg-stone-900/95 text-white dark:bg-stone-100/95 dark:text-stone-900 border-stone-800 dark:border-stone-200 backdrop-blur-md'
+                }`}
+              >
+                <div
+                  className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                  onClick={() => {
+                    if (timer.recipeId) {
+                      const found = recipes.find(
+                        (r) => r.id === timer.recipeId || r.path === timer.recipeId || r.name === timer.recipeId
+                      );
+                      if (found) setSelectedRecipe(found);
+                    }
+                  }}
+                  title="Zum Rezept springen"
+                >
+                  <Clock className={`w-4 h-4 shrink-0 ${isFinished ? 'animate-bounce' : 'text-[#DE5D4E]'}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate leading-tight">
+                      {timer.name}
+                    </p>
+                    <p className="text-[11px] opacity-80 font-mono">
+                      {isFinished ? 'Fertig!' : formatRemaining(timer.remainingSeconds)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!isFinished && (
+                    <button
+                      onClick={() => (timer.isRunning ? pauseTimer(timer.id) : startTimer(timer.id))}
+                      className="p-1.5 rounded-lg hover:bg-white/20 active:scale-95 transition-all cursor-pointer"
+                      title={timer.isRunning ? 'Pause' : 'Start'}
+                    >
+                      {timer.isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => removeTimer(timer.id)}
+                    className="p-1.5 rounded-lg hover:bg-white/20 active:scale-95 transition-all cursor-pointer"
+                    title="Timer schließen"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </aside>
+      )}
 
       {/* Edit Recipe Editor (Fullscreen Overlay with Live Preview & Server Sync) */}
       {editingRecipe && (

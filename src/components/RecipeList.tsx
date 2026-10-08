@@ -8,9 +8,11 @@ import {
   RefreshCw,
   Plus,
   LayoutGrid,
-  List as ListIcon
+  List as ListIcon,
+  Heart
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
+import { cookApi } from '../services/cookApi';
 
 interface RecipeListProps {
   recipes: Recipe[];
@@ -36,7 +38,19 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
+  const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync favorites when window focuses or recipes change
+  useEffect(() => {
+    setFavorites(cookApi.getFavorites());
+  }, [recipes]);
+
+  const handleToggleFavorite = (recipeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    cookApi.toggleFavorite(recipeId);
+    setFavorites(cookApi.getFavorites());
+  };
 
   // Keyboard shortcut: pressing "/" focuses search on desktop
   useEffect(() => {
@@ -54,7 +68,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Derive categories/folders/tags
+  // Derive categories/folders/tags including Favoriten if any exist
   const categories = useMemo(() => {
     const set = new Set<string>();
     recipes.forEach((r) => {
@@ -69,16 +83,24 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           .forEach((t) => set.add(t));
       }
     });
-    return ['All', ...Array.from(set).sort()];
-  }, [recipes]);
+    const sorted = Array.from(set).sort();
+    const result = ['All'];
+    if (favorites.length > 0) {
+      result.push('Favoriten');
+    }
+    return [...result, ...sorted];
+  }, [recipes, favorites]);
 
   // Filter recipes
   const filteredRecipes = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
     return recipes.filter((r) => {
-      // Category filter
-      if (selectedCategory !== 'All') {
+      // Favorites filter
+      if (selectedCategory === 'Favoriten') {
+        if (!favorites.includes(r.id)) return false;
+      } else if (selectedCategory !== 'All') {
+        // Category filter
         const inFolder = r.folder?.toLowerCase() === selectedCategory.toLowerCase();
         let inTags = false;
         if (Array.isArray(r.metadata.tags)) {
@@ -108,7 +130,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
 
       return true;
     });
-  }, [recipes, searchQuery, selectedCategory]);
+  }, [recipes, searchQuery, selectedCategory, favorites]);
 
   return (
     <div className="flex-1 flex flex-col max-w-xl md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-safe pb-safe font-mela-sans">
@@ -141,8 +163,8 @@ export const RecipeList: React.FC<RecipeListProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Desktop View Switcher (Grid vs List) */}
-          <div className="hidden md:flex items-center bg-stone-200/60 dark:bg-stone-800 p-0.5 rounded-full mr-1">
+          {/* Desktop/Mobile View Switcher (Grid vs List) */}
+          <div className="flex items-center bg-stone-200/60 dark:bg-stone-800 p-0.5 rounded-full mr-1">
             <button
               onClick={() => setDesktopView('grid')}
               className={`p-1.5 rounded-full transition-all cursor-pointer ${
@@ -150,7 +172,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
                   ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-white shadow-2xs'
                   : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'
               }`}
-              title="Rasteransicht"
+              title="Kachelansicht"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
@@ -199,7 +221,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       </div>
 
       {/* Search Bar with Desktop "/" hint */}
-      <div className="relative mb-3">
+      <div className="relative mb-4 sm:mb-5">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
         <input
           ref={searchInputRef}
@@ -226,29 +248,33 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       </div>
 
       {/* Category Pills (Horizontal scroll) */}
-      {categories.length > 2 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-3 mb-2">
+      {categories.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 mb-6 sm:mb-7">
           {categories.slice(0, 16).map((cat) => {
             const isSelected = selectedCategory === cat;
             return (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium shrink-0 transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
                   isSelected
                     ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-2xs'
                     : 'bg-stone-200/60 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200 hover:bg-stone-300/60'
                 }`}
               >
-                {cat}
+                {cat === 'Favoriten' && (
+                  <Heart className={`w-3 h-3 ${isSelected ? 'fill-current' : 'fill-[#DE5D4E] text-[#DE5D4E]'}`} />
+                )}
+                <span>{cat}</span>
+                {cat === 'Favoriten' && <span className="opacity-75">({favorites.length})</span>}
               </button>
             );
           })}
         </div>
       )}
 
-      {/* Content Area: Responsive Grid / List on Desktop */}
-      <div className="flex-1 pb-8">
+      {/* Content Area: Responsive Grid / List */}
+      <div className="flex-1 pb-16">
         {isLoading ? (
           <div className="py-20 text-center text-stone-400 dark:text-stone-500">
             <RefreshCw className="w-7 h-7 animate-spin mx-auto mb-3 text-[#DE5D4E]" />
@@ -293,23 +319,27 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             )}
           </div>
         ) : desktopView === 'grid' ? (
-          /* Responsive Desktop Grid / Mobile Row List */
-          <div className="divide-y divide-stone-200/70 dark:divide-stone-800/80 md:divide-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 md:gap-4 lg:gap-5">
+          /* Responsive Recipe Cards Grid with generous margins and padding */
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6 sm:gap-7 lg:gap-8">
             {filteredRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id || recipe.path}
                 recipe={recipe}
+                isFavorite={favorites.includes(recipe.id)}
+                onToggleFavorite={(e) => handleToggleFavorite(recipe.id, e)}
                 onClick={() => onSelectRecipe(recipe)}
               />
             ))}
           </div>
         ) : (
-          /* List Mode (Clean Rows) */
-          <div className="divide-y divide-stone-200/70 dark:divide-stone-800/80">
+          /* List Mode (Clean Rows with healthy margins) */
+          <div className="flex flex-col gap-2">
             {filteredRecipes.map((recipe) => (
               <RecipeRow
                 key={recipe.id || recipe.path}
                 recipe={recipe}
+                isFavorite={favorites.includes(recipe.id)}
+                onToggleFavorite={(e) => handleToggleFavorite(recipe.id, e)}
                 onClick={() => onSelectRecipe(recipe)}
               />
             ))}
@@ -320,7 +350,12 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   );
 };
 
-const RecipeCard: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe, onClick }) => {
+const RecipeCard: React.FC<{
+  recipe: Recipe;
+  isFavorite: boolean;
+  onToggleFavorite: (e: React.MouseEvent) => void;
+  onClick: () => void;
+}> = ({ recipe, isFavorite, onToggleFavorite, onClick }) => {
   const time =
     recipe.metadata.total_time ||
     recipe.metadata.cook_time ||
@@ -337,70 +372,88 @@ const RecipeCard: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe,
   return (
     <div
       onClick={onClick}
-      className="group py-3 md:py-0 md:p-3.5 flex md:flex-col items-center md:items-start gap-3.5 md:gap-3 cursor-pointer active:opacity-70 md:active:opacity-100 transition-all md:rounded-2xl md:bg-white md:dark:bg-[#1A1816] md:border md:border-stone-200/80 md:dark:border-stone-800/80 md:hover:border-stone-300 md:dark:hover:border-stone-700 md:hover:shadow-md md:hover:-translate-y-0.5"
+      className="group flex flex-col cursor-pointer transition-all duration-300 rounded-2xl bg-white dark:bg-[#1A1816] border border-stone-200/80 dark:border-stone-800/80 hover:border-stone-300 dark:hover:border-stone-700 shadow-xs hover:shadow-xl hover:-translate-y-1.5 overflow-hidden"
     >
       {/* Thumbnail */}
-      <div className="w-[68px] h-[68px] md:w-full md:h-44 rounded-xl md:rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 relative shadow-2xs">
+      <div className="w-full aspect-[16/10] overflow-hidden bg-stone-200 dark:bg-stone-800 relative">
         {recipe.image ? (
           <img
             src={recipe.image}
             alt={recipe.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-stone-200/80 dark:bg-stone-800 text-stone-400">
-            <Tag className="w-6 h-6 md:w-8 md:h-8 opacity-40" />
+          <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800/80 text-stone-400">
+            <Tag className="w-10 h-10 opacity-30" />
           </div>
         )}
+
+        {/* Category Pill on Image */}
         {category && (
-          <span className="hidden md:inline-block absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-[10px] font-semibold text-white uppercase tracking-wider">
+          <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[11px] font-semibold text-white uppercase tracking-wider shadow-xs">
             {category}
           </span>
         )}
+
+        {/* Favorite Button */}
+        <button
+          type="button"
+          onClick={onToggleFavorite}
+          className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer backdrop-blur-md ${
+            isFavorite
+              ? 'bg-white/95 dark:bg-stone-900/95 text-[#DE5D4E] shadow-sm opacity-100 scale-100'
+              : 'bg-black/35 hover:bg-black/60 text-white/90 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 hover:scale-110'
+          }`}
+          title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+        >
+          <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
+        </button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-w-0 pr-1 md:pr-0 w-full">
-        <h2 className="font-mela-serif text-[17px] md:text-lg font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1 group-hover:text-[#DE5D4E] transition-colors">
-          {recipe.name}
-        </h2>
+      {/* Content Body with generous margins & padding */}
+      <div className="p-5 sm:p-5.5 flex-1 flex flex-col justify-between">
+        <div>
+          <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-2 group-hover:text-[#DE5D4E] transition-colors mb-2">
+            {recipe.name}
+          </h2>
 
-        {/* Metadata */}
-        <div className="flex items-center gap-1.5 text-xs text-stone-500 dark:text-stone-400 mt-1">
-          {time && (
-            <span className="flex items-center gap-1 font-medium">
-              <Clock className="w-3 h-3 text-[#DE5D4E]" />
-              <span>{String(time)}</span>
-            </span>
-          )}
-
-          {time && (
-            <span className="md:hidden">•</span>
-          )}
-
-          <span className="md:hidden capitalize">{category}</span>
-
-          {author && (
-            <>
-              <span>•</span>
-              <span className="truncate">{author}</span>
-            </>
+          {/* Description snippet */}
+          {recipe.metadata.description && (
+            <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 line-clamp-2 leading-relaxed mb-4">
+              {String(recipe.metadata.description)}
+            </p>
           )}
         </div>
 
-        {/* Description snippet */}
-        {recipe.metadata.description && (
-          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 mt-1 leading-relaxed">
-            {String(recipe.metadata.description)}
-          </p>
-        )}
+        {/* Metadata Badges / Info row with generous spacing */}
+        <div className="pt-3 border-t border-stone-100 dark:border-stone-800/70 flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 gap-2">
+          {time ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
+              <Clock className="w-3.5 h-3.5 text-[#DE5D4E]" />
+              <span>{String(time)}</span>
+            </span>
+          ) : (
+            <span className="text-[11px] text-stone-400 dark:text-stone-500">Rezept</span>
+          )}
+
+          {author && (
+            <span className="truncate max-w-[150px] text-[11px] text-stone-500 dark:text-stone-400">
+              {author}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-const RecipeRow: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe, onClick }) => {
+const RecipeRow: React.FC<{
+  recipe: Recipe;
+  isFavorite: boolean;
+  onToggleFavorite: (e: React.MouseEvent) => void;
+  onClick: () => void;
+}> = ({ recipe, isFavorite, onToggleFavorite, onClick }) => {
   const time =
     recipe.metadata.total_time ||
     recipe.metadata.cook_time ||
@@ -417,14 +470,14 @@ const RecipeRow: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe, 
   return (
     <div
       onClick={onClick}
-      className="py-3.5 flex items-center gap-3.5 cursor-pointer active:opacity-70 transition-opacity hover:bg-stone-100/40 dark:hover:bg-stone-800/30 px-2 rounded-xl"
+      className="py-4 px-3 sm:px-4 my-0.5 flex items-center gap-4 cursor-pointer active:opacity-75 transition-all hover:bg-white dark:hover:bg-[#1A1816] rounded-2xl border border-transparent hover:border-stone-200/80 dark:hover:border-stone-800/80 hover:shadow-xs group"
     >
-      <div className="w-[68px] h-[68px] rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative">
+      <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative">
         {recipe.image ? (
           <img
             src={recipe.image}
             alt={recipe.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
         ) : (
@@ -434,14 +487,14 @@ const RecipeRow: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe, 
         )}
       </div>
 
-      <div className="flex-1 min-w-0 pr-1">
-        <h2 className="font-mela-serif text-[17px] font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1">
+      <div className="flex-1 min-w-0 pr-2">
+        <h2 className="font-mela-serif text-base sm:text-lg font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1 group-hover:text-[#DE5D4E] transition-colors">
           {recipe.name}
         </h2>
 
-        <div className="flex items-center gap-1.5 text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+        <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400 mt-1">
           {time && (
-            <span className="flex items-center gap-1 font-medium">
+            <span className="flex items-center gap-1 font-medium text-stone-700 dark:text-stone-300">
               <Clock className="w-3 h-3 text-[#DE5D4E]" />
               <span>{String(time)}</span>
             </span>
@@ -460,11 +513,25 @@ const RecipeRow: React.FC<{ recipe: Recipe; onClick: () => void }> = ({ recipe, 
         </div>
 
         {recipe.metadata.description && (
-          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 mt-1 leading-relaxed">
+          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-1 leading-relaxed">
             {String(recipe.metadata.description)}
           </p>
         )}
       </div>
+
+      {/* Favorite Button */}
+      <button
+        type="button"
+        onClick={onToggleFavorite}
+        className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors shrink-0 cursor-pointer"
+        title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+      >
+        <Heart
+          className={`w-4 h-4 ${
+            isFavorite ? 'fill-[#DE5D4E] text-[#DE5D4E]' : 'text-stone-300 dark:text-stone-700'
+          }`}
+        />
+      </button>
     </div>
   );
 };

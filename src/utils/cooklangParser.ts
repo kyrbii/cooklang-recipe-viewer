@@ -528,7 +528,7 @@ function parseEntity(
   }
 
   if (braceIdx !== -1) {
-    const name = text.slice(nameStartIndex, braceIdx).trim();
+    let name = text.slice(nameStartIndex, braceIdx).trim();
     const closeIdx = text.indexOf('}', braceIdx + 1);
     const endBrace = closeIdx !== -1 ? closeIdx : text.length;
     const body = text.slice(braceIdx + 1, endBrace).trim();
@@ -542,14 +542,22 @@ function parseEntity(
       quantity = q.trim() || undefined;
       units = u.trim() || undefined;
     } else if (body.length > 0) {
-      quantity = body.trim();
+      if (!name) {
+        name = body;
+      } else {
+        quantity = body.trim();
+      }
     }
 
+    const rawName = name;
+    const isOpt = Boolean(isOptional || rawName.startsWith('?'));
+    const cleanName = rawName.replace(/^\?+\s*/, '').trim();
+
     return {
-      name,
+      name: cleanName,
       quantity,
       units,
-      optional: isOptional || undefined,
+      optional: isOpt || undefined,
       nextIndex
     };
   }
@@ -560,12 +568,14 @@ function parseEntity(
     j++;
   }
 
-  const name = text.slice(nameStartIndex, j).trim();
+  const rawName = text.slice(nameStartIndex, j).trim();
+  const isOpt = Boolean(isOptional || rawName.startsWith('?'));
+  const cleanName = rawName.replace(/^\?+\s*/, '').trim();
   return {
-    name,
+    name: cleanName,
     quantity: undefined,
     units: undefined,
-    optional: isOptional || undefined,
+    optional: isOpt || undefined,
     nextIndex: j
   };
 }
@@ -734,14 +744,17 @@ export function normalizeServerRecipe(
       const ingredients: CookIngredient[] = rawIngredients.map((ing) => {
         const item = ing as Record<string, unknown>;
         const { quantity, units } = extractCookCliQuantity(item.quantity);
+        const rawName = String(item.name || 'Ingredient');
         const isOptional = Boolean(
+          rawName.startsWith('?') ||
           item.optional ||
           item.is_optional ||
           item.modifier === 'optional' ||
           (Array.isArray(item.modifiers) && item.modifiers.includes('optional'))
         );
+        const name = rawName.replace(/^\?+\s*/, '').trim();
         return {
-          name: String(item.name || 'Ingredient'),
+          name,
           quantity,
           units,
           optional: isOptional || undefined
@@ -753,14 +766,17 @@ export function normalizeServerRecipe(
       const cookware: CookCookware[] = rawCookware.map((cw) => {
         const item = cw as Record<string, unknown>;
         const { quantity } = extractCookCliQuantity(item.quantity);
+        const rawName = String(item.name || 'Cookware');
         const isOptional = Boolean(
+          rawName.startsWith('?') ||
           item.optional ||
           item.is_optional ||
           item.modifier === 'optional' ||
           (Array.isArray(item.modifiers) && item.modifiers.includes('optional'))
         );
+        const name = rawName.replace(/^\?+\s*/, '').trim();
         return {
-          name: String(item.name || 'Cookware'),
+          name,
           quantity,
           optional: isOptional || undefined
         };
@@ -799,7 +815,7 @@ export function normalizeServerRecipe(
           const itemObj = item as Record<string, unknown>;
           if (itemObj.type === 'step' && itemObj.value && typeof itemObj.value === 'object') {
             const stepVal = itemObj.value as Record<string, unknown>;
-            const stepNumber = typeof stepVal.number === 'number' ? stepVal.number : globalStepNumber++;
+            const stepNumber = globalStepNumber++;
             const stepItems: StepItem[] = [];
             const stepIngredients: CookIngredient[] = [];
             const stepCookware: CookCookware[] = [];
@@ -812,17 +828,42 @@ export function normalizeServerRecipe(
 
                 if (nodeType === 'text') {
                   stepItems.push({ type: 'text', value: String(nodeObj.value || '') });
-                } else if (nodeType === 'ingredient' && typeof nodeObj.index === 'number') {
-                  const ing = ingredients[nodeObj.index];
+                } else if (nodeType === 'ingredient') {
+                  const idx = typeof nodeObj.index === 'number' ? nodeObj.index : -1;
+                  const ing = idx >= 0 ? ingredients[idx] : undefined;
                   if (ing) {
                     stepItems.push({ type: 'ingredient', ...ing });
                     stepIngredients.push(ing);
+                  } else if (nodeObj.name) {
+                    const rawName = String(nodeObj.name);
+                    const isOpt = Boolean(rawName.startsWith('?') || nodeObj.optional);
+                    const cleanName = rawName.replace(/^\?+\s*/, '').trim();
+                    const standaloneIng: CookIngredient = {
+                      name: cleanName,
+                      quantity: extractCookCliQuantity(nodeObj.quantity).quantity,
+                      units: extractCookCliQuantity(nodeObj.quantity).units,
+                      optional: isOpt || undefined
+                    };
+                    stepItems.push({ type: 'ingredient', ...standaloneIng });
+                    stepIngredients.push(standaloneIng);
                   }
-                } else if (nodeType === 'cookware' && typeof nodeObj.index === 'number') {
-                  const cw = cookware[nodeObj.index];
+                } else if (nodeType === 'cookware') {
+                  const idx = typeof nodeObj.index === 'number' ? nodeObj.index : -1;
+                  const cw = idx >= 0 ? cookware[idx] : undefined;
                   if (cw) {
                     stepItems.push({ type: 'cookware', ...cw });
                     stepCookware.push(cw);
+                  } else if (nodeObj.name) {
+                    const rawName = String(nodeObj.name);
+                    const isOpt = Boolean(rawName.startsWith('?') || nodeObj.optional);
+                    const cleanName = rawName.replace(/^\?+\s*/, '').trim();
+                    const standaloneCw: CookCookware = {
+                      name: cleanName,
+                      quantity: extractCookCliQuantity(nodeObj.quantity).quantity,
+                      optional: isOpt || undefined
+                    };
+                    stepItems.push({ type: 'cookware', ...standaloneCw });
+                    stepCookware.push(standaloneCw);
                   }
                 } else if (nodeType === 'timer' && typeof nodeObj.index === 'number') {
                   const tm = timers[nodeObj.index];
@@ -939,12 +980,15 @@ export function normalizeServerRecipe(
                 items.push({ type: 'text', value: val });
                 rawText += val;
               } else if (itemType === 'ingredient') {
+                const rawName = String(node.name || '');
                 const isOptional = Boolean(
+                  rawName.startsWith('?') ||
                   (node as Record<string, unknown>).optional ||
                   (node as Record<string, unknown>).is_optional
                 );
+                const name = rawName.replace(/^\?+\s*/, '').trim();
                 const ing: CookIngredient = {
-                  name: String(node.name || ''),
+                  name,
                   quantity: node.quantity as number | string | undefined,
                   units: (node.units as string) || undefined,
                   optional: isOptional || undefined
@@ -954,12 +998,15 @@ export function normalizeServerRecipe(
                 allIngredients.push(ing);
                 rawText += ing.name;
               } else if (itemType === 'cookware') {
+                const rawName = String(node.name || '');
                 const isOptional = Boolean(
+                  rawName.startsWith('?') ||
                   (node as Record<string, unknown>).optional ||
                   (node as Record<string, unknown>).is_optional
                 );
+                const name = rawName.replace(/^\?+\s*/, '').trim();
                 const cw: CookCookware = {
-                  name: String(node.name || ''),
+                  name,
                   quantity: node.quantity as number | string | undefined,
                   optional: isOptional || undefined
                 };

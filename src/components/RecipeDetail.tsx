@@ -193,23 +193,34 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   const totalTime = recipe.metadata.total_time || recipe.metadata.time;
 
   const groupedSections = useMemo(() => {
+    let rawGroups: Array<{ name?: string; steps: typeof recipe.steps }> = [];
     if (recipe.sections && recipe.sections.length > 0) {
-      return recipe.sections;
-    }
-    const hasSections = recipe.steps.some((s) => Boolean(s.section));
-    if (!hasSections) {
-      return [{ name: undefined, steps: recipe.steps }];
-    }
-    const groups: Array<{ name?: string; steps: typeof recipe.steps }> = [];
-    let currentGroup: { name?: string; steps: typeof recipe.steps } | null = null;
-    for (const step of recipe.steps) {
-      if (!currentGroup || currentGroup.name !== step.section) {
-        currentGroup = { name: step.section, steps: [] };
-        groups.push(currentGroup);
+      rawGroups = recipe.sections;
+    } else {
+      const hasSections = recipe.steps.some((s) => Boolean(s.section));
+      if (!hasSections) {
+        rawGroups = [{ name: undefined, steps: recipe.steps }];
+      } else {
+        let currentGroup: { name?: string; steps: typeof recipe.steps } | null = null;
+        for (const step of recipe.steps) {
+          if (!currentGroup || currentGroup.name !== step.section) {
+            currentGroup = { name: step.section, steps: [] };
+            rawGroups.push(currentGroup);
+          }
+          currentGroup.steps.push(step);
+        }
       }
-      currentGroup.steps.push(step);
     }
-    return groups;
+
+    // Number steps continuously across all sections (1, 2, 3...)
+    let stepCounter = 1;
+    return rawGroups.map((group) => ({
+      name: group.name,
+      steps: group.steps.map((st) => ({
+        ...st,
+        stepNumber: stepCounter++
+      }))
+    }));
   }, [recipe]);
 
   return (
@@ -580,8 +591,10 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             {/* Checklist of Ingredients */}
             <div className="space-y-1">
               {recipe.ingredients.map((ing, idx) => {
-                const itemKey = ing.optional ? `${ing.name} (optional)` : ing.name;
-                const isChecked = checkedIngredients.has(itemKey) || checkedIngredients.has(ing.name);
+                const isOptional = Boolean(ing.optional || ing.name.startsWith('?'));
+                const cleanName = ing.name.replace(/^\?+\s*/, '').trim();
+                const itemKey = isOptional ? `${cleanName} (optional)` : cleanName;
+                const isChecked = checkedIngredients.has(itemKey) || checkedIngredients.has(cleanName) || checkedIngredients.has(ing.name);
                 const scaledQty = scaleQuantity(ing.quantity, ratio);
                 const amountPart = [scaledQty, ing.units].filter(Boolean).join(' ');
 
@@ -607,8 +620,8 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                           {amountPart}
                         </span>
                       )}
-                      <span>{ing.name}</span>
-                      {ing.optional && (
+                      <span>{cleanName}</span>
+                      {isOptional && (
                         <span className="ml-1.5 text-xs text-stone-500 dark:text-stone-400 font-normal">
                           (optional)
                         </span>
@@ -629,14 +642,18 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {recipe.cookware.map((cw, idx) => (
-                    <span
-                      key={idx}
-                      className="px-2.5 py-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50"
-                    >
-                      {cw.name}{cw.optional ? ' (optional)' : ''}
-                    </span>
-                  ))}
+                  {recipe.cookware.map((cw, idx) => {
+                    const isOptional = Boolean(cw.optional || cw.name.startsWith('?'));
+                    const cleanName = cw.name.replace(/^\?+\s*/, '').trim();
+                    return (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50"
+                      >
+                        {cleanName}{isOptional ? ' (optional)' : ''}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -668,7 +685,9 @@ function renderMelaStepItems(
     if (item.type === 'ingredient') {
       const scaled = scaleQuantity(item.quantity, ratio);
       const amount = [scaled, item.units].filter(Boolean).join(' ');
-      const displayName = item.optional ? `${item.name} (optional)` : item.name;
+      const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
+      const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
+      const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
       return (
         <span key={idx} className="font-semibold text-stone-900 dark:text-stone-100">
           {amount ? `${amount} ` : ''}
@@ -678,9 +697,12 @@ function renderMelaStepItems(
     }
 
     if (item.type === 'cookware') {
+      const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
+      const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
+      const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
       return (
         <span key={idx} className="font-medium text-stone-900 dark:text-stone-100">
-          {item.name}
+          {displayName}
         </span>
       );
     }

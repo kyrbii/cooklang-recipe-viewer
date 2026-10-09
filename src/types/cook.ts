@@ -16,11 +16,13 @@ export interface CookIngredient {
   name: string;
   quantity?: number | string;
   units?: string;
+  optional?: boolean;
 }
 
 export interface CookCookware {
   name: string;
   quantity?: number | string;
+  optional?: boolean;
 }
 
 export interface CookTimer {
@@ -39,15 +41,22 @@ export interface StepItem {
   quantity?: number | string;
   units?: string;
   totalSeconds?: number;
+  optional?: boolean;
 }
 
 export interface CookStep {
   stepNumber: number;
+  section?: string;
   items: StepItem[];
   rawText: string;
   ingredients: CookIngredient[];
   cookware: CookCookware[];
   timers: CookTimer[];
+}
+
+export interface CookSection {
+  name?: string;
+  steps: CookStep[];
 }
 
 export interface Recipe {
@@ -57,8 +66,10 @@ export interface Recipe {
   folder?: string;
   metadata: CookMetadata;
   steps: CookStep[];
+  sections?: CookSection[];
   ingredients: CookIngredient[];
   cookware: CookCookware[];
+  notes?: string[];
   rawCook?: string;
   image?: string;
   cachedAt?: number;

@@ -22,12 +22,13 @@ import {
   FileCode2,
   Eye,
   CookingPot,
-  Sparkles
+  Sparkles,
+  Lightbulb
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe, StepItem } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import type { RecipeDraft } from '../types/cook';
-import { normalizeServerRecipe } from '../utils/cooklangParser';
+import { normalizeServerRecipe, parseStepText } from '../utils/cooklangParser';
 import { highlightCooklang } from '../utils/cooklangHighlight';
 
 interface RecipeEditorProps {
@@ -719,9 +720,12 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
             {showHelp && (
               <div className="shrink-0 px-4 lg:px-6 py-3 border-b border-stone-200/70 dark:border-stone-800/80 bg-stone-100/70 dark:bg-stone-900/50 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-stone-600 dark:text-stone-400 animate-fadeIn select-text">
                 <HelpRow code="@Mehl{500%g}" text="Zutat mit Menge und Einheit" />
+                <HelpRow code="@?Sesam{}" text="Optionale Zutat (@?...)" />
                 <HelpRow code="@Salz" text="Zutat ohne Menge (einzelnes Wort)" />
                 <HelpRow code="#Pfanne{}" text="Kochgeschirr / Utensil" />
                 <HelpRow code="~{15%min}" text="Timer mit Dauer" />
+                <HelpRow code="= Teig =" text="Abschnitt (z. B. Teig, Füllung)" />
+                <HelpRow code="> Tipp: ..." text="Tipp / Hinweis zum Rezept" />
                 <HelpRow code="-- Kommentar" text="Kommentar bis Zeilenende" />
                 <HelpRow code="Leerzeile" text="Schritt trennen" />
               </div>
@@ -838,6 +842,27 @@ const RecipePreview: React.FC<{
   fallbackName: string;
   image?: string;
 }> = ({ recipe, fallbackName, image }) => {
+  const groupedSections = useMemo(() => {
+    if (!recipe) return [];
+    if (recipe.sections && recipe.sections.length > 0) {
+      return recipe.sections;
+    }
+    const hasSections = recipe.steps.some((s) => Boolean(s.section));
+    if (!hasSections) {
+      return [{ name: undefined, steps: recipe.steps }];
+    }
+    const groups: Array<{ name?: string; steps: typeof recipe.steps }> = [];
+    let currentGroup: { name?: string; steps: typeof recipe.steps } | null = null;
+    for (const step of recipe.steps) {
+      if (!currentGroup || currentGroup.name !== step.section) {
+        currentGroup = { name: step.section, steps: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.steps.push(step);
+    }
+    return groups;
+  }, [recipe]);
+
   if (!recipe) {
     return (
       <div className="h-full flex items-center justify-center text-sm text-stone-400 p-8 text-center">
@@ -930,24 +955,27 @@ const RecipePreview: React.FC<{
             </span>
           </h3>
           <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
-            {recipe.ingredients.map((ing, i) => (
-              <li
-                key={`${ing.name}_${i}`}
-                className="text-sm text-stone-800 dark:text-stone-200 py-1 flex items-baseline gap-2"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#DE5D4E] shrink-0 translate-y-[-2px]" />
-                <span>
-                  {(ing.quantity !== undefined || ing.units) && (
-                    <span className="font-mono font-semibold mr-1.5 text-stone-900 dark:text-stone-100">
-                      {[ing.quantity, ing.units]
-                        .filter((v) => v !== undefined && v !== '')
-                        .join(' ')}
-                    </span>
-                  )}
-                  {ing.name}
-                </span>
-              </li>
-            ))}
+            {recipe.ingredients.map((ing, i) => {
+              const displayName = ing.optional ? `${ing.name} (optional)` : ing.name;
+              return (
+                <li
+                  key={`${ing.name}_${i}`}
+                  className="text-sm text-stone-800 dark:text-stone-200 py-1 flex items-baseline gap-2"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#DE5D4E] shrink-0 translate-y-[-2px]" />
+                  <span>
+                    {(ing.quantity !== undefined || ing.units) && (
+                      <span className="font-mono font-semibold mr-1.5 text-stone-900 dark:text-stone-100">
+                        {[ing.quantity, ing.units]
+                          .filter((v) => v !== undefined && v !== '')
+                          .join(' ')}
+                      </span>
+                    )}
+                    {displayName}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -961,7 +989,7 @@ const RecipePreview: React.FC<{
               key={i}
               className="px-2.5 py-1 rounded-md bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300"
             >
-              {cw.name}
+              {cw.name}{cw.optional ? ' (optional)' : ''}
             </span>
           ))}
         </div>
@@ -973,18 +1001,54 @@ const RecipePreview: React.FC<{
           <h3 className="font-mela-serif text-lg font-bold text-stone-900 dark:text-stone-100 mb-3">
             Zubereitung
           </h3>
-          <ol className="space-y-4">
-            {recipe.steps.map((step) => (
-              <li key={step.stepNumber} className="flex gap-3">
-                <span className="font-mela-serif text-lg font-bold text-stone-400 dark:text-stone-500 w-6 shrink-0">
-                  {step.stepNumber}
-                </span>
-                <p className="text-[15px] leading-relaxed text-stone-800 dark:text-stone-200 flex-1">
-                  {step.items.map((item, idx) => renderPreviewItem(item, idx))}
-                </p>
-              </li>
+          <div className="space-y-6">
+            {groupedSections.map((group, gIdx) => (
+              <div key={gIdx} className="space-y-3">
+                {group.name && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <h4 className="font-mela-serif text-base font-bold text-stone-900 dark:text-stone-100">
+                      {group.name}
+                    </h4>
+                    <span className="h-px flex-1 bg-stone-200/80 dark:bg-stone-800/80 ml-2" />
+                  </div>
+                )}
+                <ol className="space-y-3">
+                  {group.steps.map((step) => (
+                    <li key={step.stepNumber} className="flex gap-3">
+                      <span className="font-mela-serif text-base font-bold text-stone-400 dark:text-stone-500 w-5 shrink-0">
+                        {step.stepNumber}
+                      </span>
+                      <p className="text-[14.5px] leading-relaxed text-stone-800 dark:text-stone-200 flex-1">
+                        {step.items.map((item, idx) => renderPreviewItem(item, idx))}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ))}
-          </ol>
+          </div>
+        </div>
+      )}
+
+      {/* Tips / Notes */}
+      {recipe.notes && recipe.notes.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-stone-200/70 dark:border-stone-800/80 space-y-2.5">
+          <div className="flex items-center gap-2">
+            <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <h3 className="font-mela-serif text-lg font-bold text-stone-900 dark:text-stone-100">
+              {recipe.notes.length === 1 ? 'Tipp' : 'Tipps & Hinweise'}
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {recipe.notes.map((note, idx) => (
+              <div
+                key={idx}
+                className="p-3 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 dark:border-amber-500/30 text-xs sm:text-sm leading-relaxed text-stone-800 dark:text-stone-200"
+              >
+                {parseStepText(note).items.map((it, itIdx) => renderPreviewItem(it, itIdx))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -997,10 +1061,11 @@ function renderPreviewItem(item: StepItem, idx: number) {
     const amount = [item.quantity, item.units]
       .filter((v) => v !== undefined && v !== '')
       .join(' ');
+    const displayName = item.optional ? `${item.name} (optional)` : item.name;
     return (
       <span key={idx} className="font-semibold text-[#DE5D4E] dark:text-[#f87a6c]">
         {amount ? `${amount} ` : ''}
-        {item.name}
+        {displayName}
       </span>
     );
   }

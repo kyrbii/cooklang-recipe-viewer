@@ -2,6 +2,7 @@ import type {
   CookCookware,
   CookIngredient,
   CookMetadata,
+  CookSection,
   CookStep,
   CookTimer,
   Recipe,
@@ -180,12 +181,26 @@ export function parseCooklangText(content: string, path: string): Recipe {
   }
 
   const lines = body.split(/\r?\n/);
-  const stepsRaw: string[] = [];
+  const stepsRaw: Array<{ text: string; section?: string }> = [];
+  const notesRaw: string[] = [];
   let paragraph: string[] = [];
+  let currentNote: string[] = [];
+  let currentSection: string | undefined = undefined;
+
   const flushParagraph = () => {
     if (paragraph.length > 0) {
-      stepsRaw.push(paragraph.join(' '));
+      stepsRaw.push({
+        text: paragraph.join(' '),
+        section: currentSection
+      });
       paragraph = [];
+    }
+  };
+
+  const flushNote = () => {
+    if (currentNote.length > 0) {
+      notesRaw.push(currentNote.join(' '));
+      currentNote = [];
     }
   };
 
@@ -211,6 +226,7 @@ export function parseCooklangText(content: string, path: string): Recipe {
     // Empty line separates steps (paragraphs in cooklang)
     if (rawLine.trim() === '') {
       flushParagraph();
+      flushNote();
       continue;
     }
 
@@ -238,15 +254,59 @@ export function parseCooklangText(content: string, path: string): Recipe {
       continue;
     }
 
-    // Section headers (= Dough =) and notes (> ...)
-    if (line.startsWith('=') || line.startsWith('>')) {
+    // Cooklang notes starting with >
+    if (line.startsWith('>')) {
       flushParagraph();
+      const noteContent = line.replace(/^>+\s*/, '').trim();
+      if (noteContent) {
+        currentNote.push(noteContent);
+      }
       continue;
     }
 
+    // Section headers (= Dough =, == Dough ==, = Dough)
+    if (line.startsWith('=')) {
+      flushParagraph();
+      flushNote();
+
+      let secName = '';
+      let remainingText = '';
+
+      const withClosingEquals = line.match(/^=+\s*([^=]*?)\s*=+(.*)$/);
+      if (withClosingEquals) {
+        secName = withClosingEquals[1].trim();
+        remainingText = withClosingEquals[2].trim();
+      } else {
+        const withoutClosing = line.match(/^=+\s*(.*)$/);
+        secName = withoutClosing ? withoutClosing[1].trim() : '';
+      }
+
+      currentSection = secName || undefined;
+
+      if (remainingText) {
+        paragraph.push(remainingText);
+      }
+      continue;
+    }
+
+    flushNote();
     paragraph.push(line);
   }
   flushParagraph();
+  flushNote();
+
+  // Also collect any notes from metadata if present
+  const metaNotes = metadata.notes ?? metadata.note ?? metadata.tips ?? metadata.tip;
+  if (metaNotes) {
+    if (Array.isArray(metaNotes)) {
+      metaNotes.forEach((n) => {
+        const str = String(n).trim();
+        if (str && !notesRaw.includes(str)) notesRaw.push(str);
+      });
+    } else if (typeof metaNotes === 'string' && metaNotes.trim() && !notesRaw.includes(metaNotes.trim())) {
+      notesRaw.push(metaNotes.trim());
+    }
+  }
 
   // Derive recipe name from metadata or path
   const filename = path.split('/').pop()?.replace(/\.cook$/i, '') || 'Recipe';
@@ -255,22 +315,32 @@ export function parseCooklangText(content: string, path: string): Recipe {
   const allIngredientsMap = new Map<string, CookIngredient>();
   const allCookwareMap = new Map<string, CookCookware>();
   const steps: CookStep[] = [];
+  const sectionsMap = new Map<string | undefined, CookStep[]>();
+  const sectionOrder: Array<string | undefined> = [];
 
-  stepsRaw.forEach((stepText, idx) => {
-    const { items, ingredients, cookware, timers } = parseStepText(stepText);
+  stepsRaw.forEach((rawStep, idx) => {
+    const { items, ingredients, cookware, timers } = parseStepText(rawStep.text);
     if (items.length > 0) {
-      steps.push({
+      const step: CookStep = {
         stepNumber: idx + 1,
+        section: rawStep.section,
         items,
-        rawText: stepText,
+        rawText: rawStep.text,
         ingredients,
         cookware,
         timers
-      });
+      };
+      steps.push(step);
 
-      // Aggregate ingredients
+      if (!sectionsMap.has(rawStep.section)) {
+        sectionsMap.set(rawStep.section, []);
+        sectionOrder.push(rawStep.section);
+      }
+      sectionsMap.get(rawStep.section)!.push(step);
+
+      // Aggregate ingredients (optional amounts separated according to spec)
       ingredients.forEach((ing) => {
-        const key = `${ing.name.toLowerCase()}|${(ing.units || '').toLowerCase()}`;
+        const key = `${ing.name.toLowerCase()}|${(ing.units || '').toLowerCase()}|${ing.optional ? 'opt' : 'req'}`;
         if (!allIngredientsMap.has(key)) {
           allIngredientsMap.set(key, { ...ing });
         } else {
@@ -285,13 +355,21 @@ export function parseCooklangText(content: string, path: string): Recipe {
 
       // Aggregate cookware
       cookware.forEach((cw) => {
-        const key = cw.name.toLowerCase();
+        const key = `${cw.name.toLowerCase()}|${cw.optional ? 'opt' : 'req'}`;
         if (!allCookwareMap.has(key)) {
           allCookwareMap.set(key, { ...cw });
         }
       });
     }
   });
+
+  const hasSections = steps.some((s) => Boolean(s.section));
+  const sections = hasSections
+    ? sectionOrder.map((secName) => ({
+        name: secName,
+        steps: sectionsMap.get(secName) || []
+      }))
+    : undefined;
 
   const folder = path.includes('/') ? path.split('/').slice(0, -1).join('/') : undefined;
 
@@ -302,8 +380,10 @@ export function parseCooklangText(content: string, path: string): Recipe {
     folder,
     metadata,
     steps,
+    sections,
     ingredients: Array.from(allIngredientsMap.values()),
     cookware: Array.from(allCookwareMap.values()),
+    notes: notesRaw.length > 0 ? notesRaw : undefined,
     rawCook: content,
     image: (metadata.image as string) || (metadata.picture as string) || (metadata.photo as string),
     cachedAt: Date.now()
@@ -313,7 +393,7 @@ export function parseCooklangText(content: string, path: string): Recipe {
 /**
  * Tokenize a single Cooklang step string into structured items
  */
-function parseStepText(text: string): {
+export function parseStepText(text: string): {
   items: StepItem[];
   ingredients: CookIngredient[];
   cookware: CookCookware[];
@@ -337,7 +417,7 @@ function parseStepText(text: string): {
   while (i < text.length) {
     const char = text[i];
 
-    // Ingredient @
+    // Ingredient @ or @?
     if (char === '@') {
       flushText();
       const parsed = parseEntity(text, i);
@@ -345,32 +425,36 @@ function parseStepText(text: string): {
       const ing: CookIngredient = {
         name: parsed.name,
         quantity: parsed.quantity,
-        units: parsed.units
+        units: parsed.units,
+        optional: parsed.optional
       };
       ingredients.push(ing);
       items.push({
         type: 'ingredient',
         name: ing.name,
         quantity: ing.quantity,
-        units: ing.units
+        units: ing.units,
+        optional: ing.optional
       });
       continue;
     }
 
-    // Cookware #
+    // Cookware # or #?
     if (char === '#') {
       flushText();
       const parsed = parseEntity(text, i);
       i = parsed.nextIndex;
       const cw: CookCookware = {
         name: parsed.name,
-        quantity: parsed.quantity
+        quantity: parsed.quantity,
+        optional: parsed.optional
       };
       cookware.push(cw);
       items.push({
         type: 'cookware',
         name: cw.name,
-        quantity: cw.quantity
+        quantity: cw.quantity,
+        optional: cw.optional
       });
       continue;
     }
@@ -401,7 +485,7 @@ function parseStepText(text: string): {
 }
 
 /**
- * Parses `@name{qty%units}` or `#name{qty}` or `@name` (single word)
+ * Parses `@name{qty%units}`, `@?name{qty%units}`, `#name{qty}`, `#?name{qty}` or single word `@name`, `@?name`
  */
 function parseEntity(
   text: string,
@@ -410,10 +494,18 @@ function parseEntity(
   name: string;
   quantity?: string | number;
   units?: string;
+  optional?: boolean;
   nextIndex: number;
 } {
+  const isOptional =
+    text[startIndex + 1] === '?' &&
+    startIndex + 2 < text.length &&
+    !/\s/.test(text[startIndex + 2]);
+
+  const nameStartIndex = isOptional ? startIndex + 2 : startIndex + 1;
+
   let braceIdx = -1;
-  for (let j = startIndex + 1; j < text.length; j++) {
+  for (let j = nameStartIndex; j < text.length; j++) {
     const c = text[j];
     if (c === '{') {
       braceIdx = j;
@@ -426,7 +518,7 @@ function parseEntity(
       c === '#' ||
       c === '~' ||
       c === ',' ||
-      c === '.' ||
+      (c === '.' && text[j + 1] !== '/') ||
       c === ';' ||
       c === '!' ||
       c === '?'
@@ -436,7 +528,7 @@ function parseEntity(
   }
 
   if (braceIdx !== -1) {
-    const name = text.slice(startIndex + 1, braceIdx).trim();
+    const name = text.slice(nameStartIndex, braceIdx).trim();
     const closeIdx = text.indexOf('}', braceIdx + 1);
     const endBrace = closeIdx !== -1 ? closeIdx : text.length;
     const body = text.slice(braceIdx + 1, endBrace).trim();
@@ -457,21 +549,23 @@ function parseEntity(
       name,
       quantity,
       units,
+      optional: isOptional || undefined,
       nextIndex
     };
   }
 
-  // Single-word without braces (e.g. @salt, #pan, @Öl)
-  let j = startIndex + 1;
+  // Single-word without braces (e.g. @salt, #pan, @Öl, @?chives)
+  let j = nameStartIndex;
   while (j < text.length && /[\p{L}\p{N}_-]/u.test(text[j])) {
     j++;
   }
 
-  const name = text.slice(startIndex + 1, j).trim();
+  const name = text.slice(nameStartIndex, j).trim();
   return {
     name,
     quantity: undefined,
     units: undefined,
+    optional: isOptional || undefined,
     nextIndex: j
   };
 }
@@ -640,10 +734,17 @@ export function normalizeServerRecipe(
       const ingredients: CookIngredient[] = rawIngredients.map((ing) => {
         const item = ing as Record<string, unknown>;
         const { quantity, units } = extractCookCliQuantity(item.quantity);
+        const isOptional = Boolean(
+          item.optional ||
+          item.is_optional ||
+          item.modifier === 'optional' ||
+          (Array.isArray(item.modifiers) && item.modifiers.includes('optional'))
+        );
         return {
           name: String(item.name || 'Ingredient'),
           quantity,
-          units
+          units,
+          optional: isOptional || undefined
         };
       });
 
@@ -652,9 +753,16 @@ export function normalizeServerRecipe(
       const cookware: CookCookware[] = rawCookware.map((cw) => {
         const item = cw as Record<string, unknown>;
         const { quantity } = extractCookCliQuantity(item.quantity);
+        const isOptional = Boolean(
+          item.optional ||
+          item.is_optional ||
+          item.modifier === 'optional' ||
+          (Array.isArray(item.modifiers) && item.modifiers.includes('optional'))
+        );
         return {
           name: String(item.name || 'Cookware'),
-          quantity
+          quantity,
+          optional: isOptional || undefined
         };
       });
 
@@ -676,12 +784,16 @@ export function normalizeServerRecipe(
 
       // Parse sections / steps
       const steps: CookStep[] = [];
+      const cookSections: CookSection[] = [];
+      const notes: string[] = [];
       const sections = Array.isArray(root.sections) ? root.sections : [];
 
       let globalStepNumber = 1;
       for (const section of sections) {
         const secObj = section as Record<string, unknown>;
+        const secName = typeof secObj.name === 'string' && secObj.name.trim() ? secObj.name.trim() : undefined;
         const content = Array.isArray(secObj.content) ? secObj.content : [];
+        const sectionSteps: CookStep[] = [];
 
         for (const item of content) {
           const itemObj = item as Record<string, unknown>;
@@ -722,15 +834,52 @@ export function normalizeServerRecipe(
               }
             }
 
-            steps.push({
+            const step: CookStep = {
               stepNumber,
+              section: secName,
               items: stepItems,
               rawText: '',
               ingredients: stepIngredients,
               cookware: stepCookware,
               timers: stepTimers
-            });
+            };
+            steps.push(step);
+            sectionSteps.push(step);
+          } else if (itemObj.type === 'note' || itemObj.type === 'text') {
+            const noteVal = typeof itemObj.value === 'string'
+              ? itemObj.value
+              : typeof (itemObj.value as Record<string, unknown>)?.text === 'string'
+              ? (itemObj.value as Record<string, unknown>).text as string
+              : '';
+            if (noteVal && noteVal.trim()) {
+              notes.push(noteVal.trim());
+            }
           }
+        }
+
+        if (sectionSteps.length > 0 && (secName || sections.length > 1)) {
+          cookSections.push({
+            name: secName,
+            steps: sectionSteps
+          });
+        }
+      }
+
+      if (Array.isArray(root.notes)) {
+        root.notes.forEach((n) => {
+          if (typeof n === 'string' && n.trim()) notes.push(n.trim());
+        });
+      }
+
+      const metaNotes = metadata.notes ?? metadata.note ?? metadata.tips ?? metadata.tip;
+      if (metaNotes) {
+        if (Array.isArray(metaNotes)) {
+          metaNotes.forEach((n) => {
+            const str = String(n).trim();
+            if (str && !notes.includes(str)) notes.push(str);
+          });
+        } else if (typeof metaNotes === 'string' && metaNotes.trim() && !notes.includes(metaNotes.trim())) {
+          notes.push(metaNotes.trim());
         }
       }
 
@@ -750,8 +899,10 @@ export function normalizeServerRecipe(
         folder,
         metadata,
         steps,
+        sections: cookSections.length > 0 ? cookSections : undefined,
         ingredients,
         cookware,
+        notes: notes.length > 0 ? notes : undefined,
         image,
         cachedAt: Date.now()
       };
@@ -764,6 +915,7 @@ export function normalizeServerRecipe(
       const name = (metadata.title as string) || (raw.name as string) || filename.replace(/[-_]/g, ' ');
 
       const steps: CookStep[] = [];
+      const notes: string[] = [];
       const allIngredients: CookIngredient[] = [];
       const allCookware: CookCookware[] = [];
 
@@ -787,19 +939,29 @@ export function normalizeServerRecipe(
                 items.push({ type: 'text', value: val });
                 rawText += val;
               } else if (itemType === 'ingredient') {
+                const isOptional = Boolean(
+                  (node as Record<string, unknown>).optional ||
+                  (node as Record<string, unknown>).is_optional
+                );
                 const ing: CookIngredient = {
                   name: String(node.name || ''),
                   quantity: node.quantity as number | string | undefined,
-                  units: (node.units as string) || undefined
+                  units: (node.units as string) || undefined,
+                  optional: isOptional || undefined
                 };
                 items.push({ type: 'ingredient', ...ing });
                 stepIngredients.push(ing);
                 allIngredients.push(ing);
                 rawText += ing.name;
               } else if (itemType === 'cookware') {
+                const isOptional = Boolean(
+                  (node as Record<string, unknown>).optional ||
+                  (node as Record<string, unknown>).is_optional
+                );
                 const cw: CookCookware = {
                   name: String(node.name || ''),
-                  quantity: node.quantity as number | string | undefined
+                  quantity: node.quantity as number | string | undefined,
+                  optional: isOptional || undefined
                 };
                 items.push({ type: 'cookware', ...cw });
                 stepCookware.push(cw);
@@ -840,6 +1002,24 @@ export function normalizeServerRecipe(
         });
       });
 
+      if (Array.isArray(raw.notes)) {
+        raw.notes.forEach((n) => {
+          if (typeof n === 'string' && n.trim()) notes.push(n.trim());
+        });
+      }
+
+      const metaNotes = metadata.notes ?? metadata.note ?? metadata.tips ?? metadata.tip;
+      if (metaNotes) {
+        if (Array.isArray(metaNotes)) {
+          metaNotes.forEach((n) => {
+            const str = String(n).trim();
+            if (str && !notes.includes(str)) notes.push(str);
+          });
+        } else if (typeof metaNotes === 'string' && metaNotes.trim() && !notes.includes(metaNotes.trim())) {
+          notes.push(metaNotes.trim());
+        }
+      }
+
       const ingredients = Array.isArray(raw.ingredients)
         ? (raw.ingredients as CookIngredient[])
         : allIngredients;
@@ -860,6 +1040,7 @@ export function normalizeServerRecipe(
         steps,
         ingredients,
         cookware,
+        notes: notes.length > 0 ? notes : undefined,
         image: (metadata.image as string) || (metadata.picture as string) || (metadata.photo as string) || (raw.image as string),
         cachedAt: Date.now()
       };

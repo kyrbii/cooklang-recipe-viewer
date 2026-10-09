@@ -8,7 +8,7 @@ import React from 'react';
  * No borders, no padding, no bold/italics that shift glyph widths.
  */
 
-const ENTITY_RE = /(\[-.*?-\])|(--.*$)|([@#~])([^@#~{}\n]*?\{[^}\n]*\}|[\p{L}\p{N}_-]*)/gu;
+const ENTITY_RE = /(\[-.*?-\])|(--.*$)|([@#]\?|[@#~])([^@#~{}\n]*?\{[^}\n]*\}|[\p{L}\p{N}_-]*)/gu;
 
 const CLS = {
   ingredient: 'text-[#DE5D4E] dark:text-[#f87a6c] bg-[#DE5D4E]/10 rounded-xs',
@@ -44,7 +44,7 @@ function highlightStepLine(line: string, keyPrefix: string): React.ReactNode[] {
         </span>
       );
     } else if (marker) {
-      const cls = marker === '@' ? CLS.ingredient : marker === '#' ? CLS.cookware : CLS.timer;
+      const cls = marker.startsWith('@') ? CLS.ingredient : marker.startsWith('#') ? CLS.cookware : CLS.timer;
       const braceIdx = rest.indexOf('{');
       if (braceIdx === -1) {
         out.push(
@@ -127,7 +127,17 @@ export function highlightCooklang(source: string): React.ReactNode[] {
     } else if (/^\s*=/.test(line)) {
       node = <span className={CLS.section}>{line}</span>;
     } else if (/^\s*>/.test(line)) {
-      node = <span className={CLS.note}>{line}</span>;
+      const match = line.match(/^(\s*>+\s*)(.*)$/);
+      if (match) {
+        node = (
+          <>
+            <span className="text-amber-600 dark:text-amber-400 font-semibold">{match[1]}</span>
+            <span className={CLS.note}>{highlightStepLine(match[2], key)}</span>
+          </>
+        );
+      } else {
+        node = <span className={CLS.note}>{line}</span>;
+      }
     } else {
       const open = line.lastIndexOf('[-');
       if (open !== -1 && line.indexOf('-]', open) === -1) {

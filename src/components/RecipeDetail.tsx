@@ -13,10 +13,13 @@ import {
   Share2,
   CookingPot,
   ChefHat,
-  Pencil
+  Pencil,
+  Tag,
+  Lightbulb,
+  Sparkles
 } from 'lucide-react';
 import type { Recipe, StepItem } from '../types/cook';
-import { parseQuantity, scaleQuantity } from '../utils/cooklangParser';
+import { parseQuantity, parseStepText, scaleQuantity } from '../utils/cooklangParser';
 import { cookApi } from '../services/cookApi';
 import { useTimers } from '../context/TimerContext';
 
@@ -134,6 +137,17 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
   const ratio = currentServings / baseServings;
 
+  const tags = useMemo(() => {
+    const raw = recipe.metadata.tags ?? recipe.metadata.tag;
+    if (Array.isArray(raw)) {
+      return raw.map(String).map((t) => t.trim()).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+      return raw.split(',').map((t) => t.trim()).filter(Boolean);
+    }
+    return [];
+  }, [recipe]);
+
   const handleServingChange = (delta: number) => {
     setCurrentServings((prev) => Math.max(1, prev + delta));
   };
@@ -177,6 +191,26 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   const prepTime = recipe.metadata.prep_time;
   const cookTime = recipe.metadata.cook_time;
   const totalTime = recipe.metadata.total_time || recipe.metadata.time;
+
+  const groupedSections = useMemo(() => {
+    if (recipe.sections && recipe.sections.length > 0) {
+      return recipe.sections;
+    }
+    const hasSections = recipe.steps.some((s) => Boolean(s.section));
+    if (!hasSections) {
+      return [{ name: undefined, steps: recipe.steps }];
+    }
+    const groups: Array<{ name?: string; steps: typeof recipe.steps }> = [];
+    let currentGroup: { name?: string; steps: typeof recipe.steps } | null = null;
+    for (const step of recipe.steps) {
+      if (!currentGroup || currentGroup.name !== step.section) {
+        currentGroup = { name: step.section, steps: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.steps.push(step);
+    }
+    return groups;
+  }, [recipe]);
 
   return (
     <div className="flex-1 flex flex-col w-full font-mela-sans min-h-screen">
@@ -310,6 +344,21 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
               </p>
             )}
 
+            {/* Recipe Tags */}
+            {tags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {tags.map((tag, idx) => (
+                  <span
+                    key={`${tag}_${idx}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/60 dark:border-stone-700/60 shadow-2xs hover:bg-stone-300/60 transition-colors"
+                  >
+                    <Tag className="w-3 h-3 text-[#DE5D4E] opacity-80" />
+                    <span>{tag}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Metadata Badges & Share Row */}
             <div className="flex flex-wrap items-center justify-between gap-3 py-2.5 border-y border-stone-200/70 dark:border-stone-800/80 text-xs text-stone-600 dark:text-stone-400">
               <div className="flex flex-wrap items-center gap-4">
@@ -374,30 +423,87 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
               Zubereitung
             </h2>
 
-            <div className="space-y-6 sm:space-y-7">
-              {recipe.steps.map((step) => (
-                <div key={step.stepNumber} className="flex gap-4 sm:gap-5">
-                  {/* Step Number in bold serif */}
-                  <span className="font-mela-serif text-xl sm:text-2xl font-bold text-stone-400 dark:text-stone-500 shrink-0 w-6 pt-0.5">
-                    {step.stepNumber}
-                  </span>
+            <div className="space-y-8">
+              {groupedSections.map((group, gIdx) => (
+                <div key={gIdx} className="space-y-4">
+                  {group.name && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <h3 className="font-mela-serif text-xl sm:text-2xl font-bold text-stone-900 dark:text-stone-100">
+                        {group.name}
+                      </h3>
+                      <span className="h-px flex-1 bg-stone-200/80 dark:bg-stone-800/80 ml-2" />
+                    </div>
+                  )}
 
-                  {/* Step text with clean typography and embedded interactive timers */}
-                  <div className="flex-1 text-[15px] sm:text-base leading-relaxed text-stone-800 dark:text-stone-200">
-                    {renderMelaStepItems(
-                      step.items,
-                      ratio,
-                      addTimer,
-                      recipe.name,
-                      step.stepNumber,
-                      timers,
-                      pauseTimer,
-                      startTimer
-                    )}
+                  <div className="space-y-6 sm:space-y-7">
+                    {group.steps.map((step) => (
+                      <div key={step.stepNumber} className="flex gap-4 sm:gap-5">
+                        {/* Step Number in bold serif */}
+                        <span className="font-mela-serif text-xl sm:text-2xl font-bold text-stone-400 dark:text-stone-500 shrink-0 w-6 pt-0.5">
+                          {step.stepNumber}
+                        </span>
+
+                        {/* Step text with clean typography and embedded interactive timers */}
+                        <div className="flex-1 text-[15px] sm:text-base leading-relaxed text-stone-800 dark:text-stone-200">
+                          {renderMelaStepItems(
+                            step.items,
+                            ratio,
+                            addTimer,
+                            recipe.name,
+                            step.stepNumber,
+                            timers,
+                            pauseTimer,
+                            startTimer
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Tips / Notes Section (Tipps aus dem Rezepttext) */}
+            {recipe.notes && recipe.notes.length > 0 && (
+              <div className="mt-8 pt-6 border-t border-stone-200/70 dark:border-stone-800/80 space-y-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/15 dark:bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                    <Lightbulb className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-mela-serif text-xl sm:text-2xl font-bold text-stone-900 dark:text-stone-100">
+                    {recipe.notes.length === 1 ? 'Tipp' : 'Tipps & Hinweise'}
+                  </h3>
+                </div>
+
+                <div className="space-y-3">
+                  {recipe.notes.map((note, idx) => {
+                    const parsed = parseStepText(note);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 dark:border-amber-500/30 text-stone-800 dark:text-stone-200 shadow-2xs"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 text-sm sm:text-[15px] leading-relaxed">
+                            {renderMelaStepItems(
+                              parsed.items,
+                              ratio,
+                              addTimer,
+                              recipe.name,
+                              0,
+                              timers,
+                              pauseTimer,
+                              startTimer
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -474,14 +580,15 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             {/* Checklist of Ingredients */}
             <div className="space-y-1">
               {recipe.ingredients.map((ing, idx) => {
-                const isChecked = checkedIngredients.has(ing.name);
+                const itemKey = ing.optional ? `${ing.name} (optional)` : ing.name;
+                const isChecked = checkedIngredients.has(itemKey) || checkedIngredients.has(ing.name);
                 const scaledQty = scaleQuantity(ing.quantity, ratio);
                 const amountPart = [scaledQty, ing.units].filter(Boolean).join(' ');
 
                 return (
                   <div
-                    key={`${ing.name}_${idx}`}
-                    onClick={() => handleToggleIngredient(ing.name)}
+                    key={`${itemKey}_${idx}`}
+                    onClick={() => handleToggleIngredient(itemKey)}
                     className={`py-2 px-2.5 rounded-xl flex items-center gap-3 cursor-pointer transition-colors select-none ${
                       isChecked
                         ? 'text-stone-400 dark:text-stone-600 line-through bg-stone-100/40 dark:bg-stone-900/40'
@@ -501,6 +608,11 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                         </span>
                       )}
                       <span>{ing.name}</span>
+                      {ing.optional && (
+                        <span className="ml-1.5 text-xs text-stone-500 dark:text-stone-400 font-normal">
+                          (optional)
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -522,7 +634,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                       key={idx}
                       className="px-2.5 py-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50"
                     >
-                      {cw.name}
+                      {cw.name}{cw.optional ? ' (optional)' : ''}
                     </span>
                   ))}
                 </div>
@@ -556,10 +668,11 @@ function renderMelaStepItems(
     if (item.type === 'ingredient') {
       const scaled = scaleQuantity(item.quantity, ratio);
       const amount = [scaled, item.units].filter(Boolean).join(' ');
+      const displayName = item.optional ? `${item.name} (optional)` : item.name;
       return (
         <span key={idx} className="font-semibold text-stone-900 dark:text-stone-100">
           {amount ? `${amount} ` : ''}
-          {item.name}
+          {displayName}
         </span>
       );
     }

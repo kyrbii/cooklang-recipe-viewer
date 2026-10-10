@@ -68,12 +68,7 @@ class CookApiService {
     try {
       const storedUrl = localStorage.getItem(STORAGE_KEYS.SERVER_URL);
       if (storedUrl) {
-        if (storedUrl === 'http://localhost:9080' || storedUrl === 'http://127.0.0.1:9080') {
-          url = DEFAULT_SERVER_URL;
-          localStorage.setItem(STORAGE_KEYS.SERVER_URL, DEFAULT_SERVER_URL);
-        } else {
-          url = storedUrl.trim();
-        }
+        url = storedUrl.trim();
       }
       const storedUser = localStorage.getItem(STORAGE_KEYS.SERVER_USER);
       if (storedUser) {
@@ -129,9 +124,9 @@ class CookApiService {
     return { user: this.serverUser, pass: this.serverPass };
   }
 
-  public getAuthHeaders(overrideUser?: string, overridePass?: string): Record<string, string> {
-    const user = overrideUser !== undefined ? overrideUser.trim() : this.serverUser;
-    const pass = overridePass !== undefined ? overridePass : this.serverPass;
+  public getAuthHeaders(): Record<string, string> {
+    const user = this.serverUser;
+    const pass = this.serverPass;
     if (user) {
       try {
         const str = `${user}:${pass || ''}`;
@@ -260,110 +255,26 @@ class CookApiService {
     return this.connectionStatus;
   }
 
-  /**
-   * Resilient fetch supporting localhost, 127.0.0.1, and local proxy fallback
-   */
-  private async fetchApi(path: string, overrideBaseUrl?: string, options: RequestInit = {}): Promise<Response> {
+  private async fetchApi(path: string, options: RequestInit = {}): Promise<Response> {
     const cleanPath = path.replace(/^\/+/, '');
-    const cleanBase = (overrideBaseUrl || this.serverUrl).replace(/\/+$/, '');
+    const cleanBase = this.serverUrl.replace(/\/+$/, '');
 
-    const candidates = [
-      `${cleanBase}/${cleanPath}`
-    ];
-
-    if (cleanBase.includes('localhost')) {
-      candidates.push(`${cleanBase.replace('localhost', '127.0.0.1')}/${cleanPath}`);
-    } else if (cleanBase.includes('127.0.0.1')) {
-      candidates.push(`${cleanBase.replace('127.0.0.1', 'localhost')}/${cleanPath}`);
-    }
-
-    // Relative path through Vite dev/preview proxy only when targeting localhost/local dev
-    if (cleanBase.includes('localhost') || cleanBase.includes('127.0.0.1') || cleanBase === '') {
-      candidates.push(`/${cleanPath}`);
-    }
-
-    const authHeaders = this.getAuthHeaders();
-    let lastError: unknown;
-    let lastResponse: Response | null = null;
-    for (const url of candidates) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(url, {
-          ...options,
-          signal: controller.signal,
-          credentials: 'omit',
-          headers: {
-            Accept: 'application/json, text/plain, */*',
-            'X-Requested-With': 'XMLHttpRequest',
-            ...authHeaders,
-            ...(options.headers || {})
-          }
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          return res;
-        }
-
-        // If the server responded with 401 or another HTTP status, return the response directly so the caller knows the exact HTTP status
-        if (res.status === 401 || res.status === 403 || res.status === 404) {
-          return res;
-        }
-        lastResponse = res;
-      } catch (err) {
-        lastError = err;
-      }
-    }
-
-    if (lastResponse) {
-      return lastResponse;
-    }
-
-    throw lastError || new Error(`Failed to fetch ${cleanPath}`);
-  }
-
-  /**
-   * Pings Cook CLI Server to verify connection
-   */
-  public async testConnection(
-    overrideUrl?: string,
-    overrideUser?: string,
-    overridePass?: string
-  ): Promise<{ success: boolean; latencyMs?: number; message?: string }> {
-    this.setStatus('checking');
-    const start = performance.now();
-
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     try {
-      const auth = this.getAuthHeaders(overrideUser, overridePass);
-      const response = await this.fetchApi('api/recipes', overrideUrl, {
-        headers: auth
-      });
-      const latencyMs = Math.round(performance.now() - start);
-
-      if (response.ok) {
-        this.setStatus('connected');
-        return { success: true, latencyMs, message: `Verbunden (${latencyMs}ms)` };
-      } else {
-        this.setStatus('error');
-        const statusText = response.status === 401
-          ? '401 Unauthorized (Zugangsdaten fehlerhaft oder erforderlich)'
-          : `Server HTTP ${response.status}`;
-        return { success: false, latencyMs, message: statusText };
-      }
-    } catch (err: unknown) {
-      this.setStatus('disconnected');
-      let msg = 'Server nicht erreichbar';
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          msg = 'Zeitüberschreitung (Timeout)';
-        } else if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
-          msg = 'Verbindungsfehler / CORS-Preflight blockiert';
-        } else {
-          msg = err.message;
+      return await fetch(`${cleanBase}/${cleanPath}`, {
+        ...options,
+        signal: controller.signal,
+        credentials: 'omit',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...this.getAuthHeaders(),
+          ...(options.headers || {})
         }
-      }
-      return { success: false, message: msg };
+      });
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -749,7 +660,7 @@ class CookApiService {
       .join('/');
 
     try {
-      const res = await this.fetchApi(`api/recipes/${encodedPath}`, undefined, {
+      const res = await this.fetchApi(`api/recipes/${encodedPath}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'text/plain; charset=utf-8'
@@ -798,7 +709,7 @@ class CookApiService {
 
     let res: Response;
     try {
-      res = await this.fetchApi(`api/recipes/raw/${encoded}`, undefined, {
+      res = await this.fetchApi(`api/recipes/raw/${encoded}`, {
         cache: 'no-store',
         headers: { Accept: 'text/plain, */*' }
       });
@@ -843,7 +754,7 @@ class CookApiService {
         }
       }
 
-      const res = await this.fetchApi(`api/recipes/${encoded}`, undefined, {
+      const res = await this.fetchApi(`api/recipes/${encoded}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'text/plain; charset=utf-8'
@@ -996,26 +907,6 @@ class CookApiService {
       }
     }
     this.imageBlobCache.clear();
-  }
-
-  /**
-   * Clear all cached recipe data
-   */
-  public clearCache(): void {
-    this.clearImageCache();
-    try {
-      localStorage.removeItem(STORAGE_KEYS.RECIPES_CACHE);
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(STORAGE_KEYS.RECIPE_DETAIL_PREFIX)) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-    } catch {
-      // Ignore
-    }
   }
 }
 

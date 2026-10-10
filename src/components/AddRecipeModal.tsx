@@ -7,7 +7,6 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
-  FolderPlus,
   Tag,
   Loader2
 } from 'lucide-react';
@@ -27,12 +26,17 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
   onClose,
   onRecipeSaved
 }) => {
-  const [activeTab, setActiveTab] = useState<'cookify' | 'text'>('cookify');
+  const [activeTab, setActiveTab] = useState<'ai' | 'cookify' | 'text'>('ai');
+
+  // KI-Import states
+  const [aiMode, setAiMode] = useState<'url' | 'text' | 'photo'>('url');
+  const [aiInput, setAiInput] = useState('');
+  const [aiPhoto, setAiPhoto] = useState<{ data: string; mimeType: string; name: string } | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
 
   // Input states
   const [cookifyUrl, setCookifyUrl] = useState('');
   const [recipeName, setRecipeName] = useState('');
-  const [folder, setFolder] = useState('');
   const [cookContent, setCookContent] = useState('');
 
   // Status states
@@ -46,12 +50,14 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     if (!isOpen) {
       setCookifyUrl('');
       setRecipeName('');
-      setFolder('');
       setCookContent('');
       setErrorMsg(null);
       setNameUserEdited(false);
       setIsFetchingUrl(false);
       setIsSaving(false);
+      setAiInput('');
+      setAiPhoto(null);
+      setIsConverting(false);
     }
   }, [isOpen]);
 
@@ -145,6 +151,61 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
+  // KI-Import: URL, Text oder Foto über den ai-import Dienst in Cooklang umwandeln
+  const handleAiImport = async () => {
+    setErrorMsg(null);
+    setIsConverting(true);
+    try {
+      let payload: Record<string, string>;
+      if (aiMode === 'url') {
+        if (!aiInput.trim()) throw new Error('Bitte gib eine Webseiten-URL ein.');
+        payload = { url: aiInput.trim() };
+      } else if (aiMode === 'text') {
+        if (!aiInput.trim()) throw new Error('Bitte füge den Rezepttext ein.');
+        payload = { text: aiInput };
+      } else {
+        if (!aiPhoto) throw new Error('Bitte wähle ein Foto aus.');
+        payload = { image: aiPhoto.data, mimeType: aiPhoto.mimeType };
+      }
+
+      const res = await fetch(`${cookApi.getServerUrl().replace(/\/+$/, '')}/ai/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...cookApi.getAuthHeaders() },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Umwandlung fehlgeschlagen (HTTP ${res.status}).`);
+      }
+
+      handleContentChange(data.cooklang);
+      setActiveTab('text');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Umwandlung fehlgeschlagen.');
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  const handlePhotoChange = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setErrorMsg('Das Foto ist größer als 8 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      setAiPhoto({
+        data: result.slice(result.indexOf(',') + 1),
+        mimeType: file.type || 'image/jpeg',
+        name: file.name
+      });
+      setErrorMsg(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Preview parsed details
   const previewRecipe = useMemo(() => {
     if (!cookContent.trim()) return null;
@@ -155,13 +216,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   }, [cookContent, recipeName]);
 
-  // Compute final server path
-  const finalServerPath = useMemo(() => {
-    const cleanName = recipeName.trim().replace(/\.cook$/i, '');
-    const cleanFolder = folder.trim().replace(/^\/+|\/+$/g, '');
-    if (!cleanName) return '';
-    return cleanFolder ? `${cleanFolder}/${cleanName}` : cleanName;
-  }, [recipeName, folder]);
+  const finalServerPath = recipeName.trim().replace(/\.cook$/i, '');
 
   // Save recipe to Cook CLI server using official PUT endpoint
   const handleSaveRecipe = async () => {
@@ -209,10 +264,10 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm transition-opacity">
-      <div className="w-full max-w-xl bg-[#FAF8F5] dark:bg-[#1A1816] rounded-t-3xl sm:rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden max-h-[92dvh] flex flex-col pb-safe animate-slideUp">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800 shrink-0">
+    <div className="fixed inset-0 z-50 h-dvh bg-[#FAF8F5] dark:bg-[#1A1816] flex flex-col animate-slideUp">
+      {/* Header */}
+      <div className="pt-safe border-b border-stone-200 dark:border-stone-800 shrink-0">
+        <div className="w-full max-w-2xl mx-auto flex items-center justify-between px-5 py-4">
           <div>
             <h2 className="font-mela-serif text-xl font-bold text-stone-900 dark:text-stone-100">
               Rezept hinzufügen
@@ -228,9 +283,11 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+      </div>
 
-        {/* Modal Body */}
-        <div className="p-5 space-y-4 overflow-y-auto flex-1 font-mela-sans">
+      {/* Modal Body */}
+      <div className="overflow-y-auto flex-1">
+        <div className="w-full max-w-2xl mx-auto p-5 space-y-4 font-mela-sans">
           {/* Error Message */}
           {errorMsg && (
             <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 flex items-start gap-2.5 text-xs text-red-700 dark:text-red-300">
@@ -239,7 +296,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
             </div>
           )}
 
-          {/* Name & Folder Inputs */}
+          {/* Name Input */}
           <div className="p-4 rounded-2xl bg-white dark:bg-[#121110] border border-stone-200 dark:border-stone-800 space-y-3 shadow-xs">
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -267,24 +324,21 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               </p>
             </div>
 
-            {/* Optional Folder */}
-            <div>
-              <label className="text-[11px] font-medium text-stone-500 dark:text-stone-400 flex items-center gap-1.5 mb-1">
-                <FolderPlus className="w-3 h-3 text-stone-400" />
-                <span>Ordner / Kategorie (optional)</span>
-              </label>
-              <input
-                type="text"
-                value={folder}
-                onChange={(e) => setFolder(e.target.value)}
-                placeholder="z. B. Backen oder Desserts"
-                className="w-full h-9 px-3 rounded-lg bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200 text-xs focus:outline-none focus:ring-1 focus:ring-[#DE5D4E]"
-              />
-            </div>
           </div>
 
           {/* Tab Selector */}
           <div className="flex rounded-xl bg-stone-200/70 dark:bg-stone-800/80 p-1">
+            <button
+              onClick={() => setActiveTab('ai')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === 'ai'
+                  ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-stone-100 shadow-xs'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#DE5D4E]" />
+              <span>KI-Import</span>
+            </button>
             <button
               onClick={() => setActiveTab('cookify')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
@@ -308,6 +362,107 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               <span>Cooklang Text {cookContent && '✓'}</span>
             </button>
           </div>
+
+          {/* Tab 0: KI-Import (URL, Text oder Foto) */}
+          {activeTab === 'ai' && (
+            <div className="space-y-3.5">
+              <div className="flex rounded-lg bg-stone-200/60 dark:bg-stone-800/60 p-0.5 text-[11px] font-semibold">
+                {(
+                  [
+                    ['url', 'Webseite'],
+                    ['text', 'Text'],
+                    ['photo', 'Foto']
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      setAiMode(mode);
+                      setErrorMsg(null);
+                    }}
+                    className={`flex-1 py-1.5 rounded-md transition-all ${
+                      aiMode === mode
+                        ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-stone-100 shadow-xs'
+                        : 'text-stone-600 dark:text-stone-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {aiMode === 'url' && (
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5 block">
+                    Rezept-URL
+                  </label>
+                  <input
+                    type="url"
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    placeholder="https://www.example.de/rezept/..."
+                    className="w-full h-11 px-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
+                  />
+                  <p className="text-[11px] text-stone-400 dark:text-stone-500 mt-1">
+                    Instagram-Links funktionieren nicht. Kopiere dort die Beschreibung in den Reiter „Text“.
+                  </p>
+                </div>
+              )}
+
+              {aiMode === 'text' && (
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5 block">
+                    Rezepttext (z. B. Beschreibung eines Reels)
+                  </label>
+                  <textarea
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    placeholder="Füge hier den Text oder die Beschreibung ein ..."
+                    rows={8}
+                    className="w-full p-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
+                  />
+                </div>
+              )}
+
+              {aiMode === 'photo' && (
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5 block">
+                    Foto eines Rezepts
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic"
+                    onChange={(e) => handlePhotoChange(e.target.files?.[0])}
+                    className="block w-full text-xs text-stone-600 dark:text-stone-400 file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-stone-200 dark:file:bg-stone-800 file:text-stone-800 dark:file:text-stone-200 file:font-semibold"
+                  />
+                  {aiPhoto && (
+                    <p className="text-[11px] text-stone-500 mt-1.5 truncate">Ausgewählt: {aiPhoto.name}</p>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handleAiImport}
+                disabled={isConverting}
+                className="w-full h-11 rounded-xl bg-[#DE5D4E] hover:bg-[#cf5142] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isConverting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Wird umgewandelt ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>In Cooklang umwandeln</span>
+                  </>
+                )}
+              </button>
+              <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                Das Ergebnis erscheint im Reiter „Cooklang Text“, dort kannst du es vor dem Speichern prüfen.
+              </p>
+            </div>
+          )}
 
           {/* Tab 1: cook.md URL import */}
           {activeTab === 'cookify' && (
@@ -404,7 +559,7 @@ servings: 4
 
 Die @Zwiebel{1} würfeln und in #Pfanne{} mit @Öl{2%el} anbraten.
 Mit @Gemüsebrühe{500%ml} ablöschen und für ~{15%min} köcheln lassen.`}
-                rows={9}
+                rows={16}
                 className="w-full p-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
               />
             </div>
@@ -444,9 +599,11 @@ Mit @Gemüsebrühe{500%ml} ablöschen und für ~{15%min} köcheln lassen.`}
             </div>
           )}
         </div>
+      </div>
 
-        {/* Modal Footer */}
-        <div className="px-5 py-4 border-t border-stone-200 dark:border-stone-800 flex items-center justify-end gap-2.5 shrink-0 bg-stone-100/50 dark:bg-[#141312]">
+      {/* Footer */}
+      <div className="pb-safe border-t border-stone-200 dark:border-stone-800 shrink-0 bg-stone-100/50 dark:bg-[#141312]">
+        <div className="w-full max-w-2xl mx-auto px-5 pt-4 flex items-center justify-end gap-2.5">
           <button
             onClick={onClose}
             disabled={isSaving}

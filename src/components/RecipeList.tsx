@@ -69,11 +69,10 @@ export const RecipeList: React.FC<RecipeListProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Derive categories/folders/tags including Favoriten if any exist
+  // Derive categories from tags, including Favoriten if any exist
   const categories = useMemo(() => {
     const set = new Set<string>();
     recipes.forEach((r) => {
-      if (r.folder) set.add(r.folder);
       if (Array.isArray(r.metadata.tags)) {
         r.metadata.tags.forEach((t) => set.add(t));
       } else if (typeof r.metadata.tags === 'string') {
@@ -102,7 +101,6 @@ export const RecipeList: React.FC<RecipeListProps> = ({
         if (!favorites.includes(r.id)) return false;
       } else if (selectedCategory !== 'Alle') {
         // Category filter
-        const inFolder = r.folder?.toLowerCase() === selectedCategory.toLowerCase();
         let inTags = false;
         if (Array.isArray(r.metadata.tags)) {
           inTags = r.metadata.tags.some(
@@ -115,7 +113,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             .map((t) => t.trim())
             .includes(selectedCategory.toLowerCase());
         }
-        if (!inFolder && !inTags) return false;
+        if (!inTags) return false;
       }
 
       // Query filter
@@ -363,7 +361,6 @@ const RecipeCard: React.FC<{
     recipe.metadata.time ||
     recipe.metadata.prep_time;
   const category =
-    recipe.folder ||
     (Array.isArray(recipe.metadata.tags)
       ? recipe.metadata.tags[0]
       : recipe.metadata.tags) ||
@@ -466,11 +463,10 @@ const RecipeRow: React.FC<{
     recipe.metadata.time ||
     recipe.metadata.prep_time;
   const category =
-    recipe.folder ||
     (Array.isArray(recipe.metadata.tags)
       ? recipe.metadata.tags[0]
       : recipe.metadata.tags) ||
-    'Recipe';
+    'Rezept';
   const author = (recipe.metadata.author as string) || (recipe.metadata.source as string);
 
   return (

@@ -2,13 +2,9 @@ import React, { useState } from 'react';
 import {
   X,
   Server,
-  Wifi,
   Sun,
   Moon,
   CheckCircle2,
-  AlertCircle,
-  Terminal,
-  Trash2,
   RefreshCw,
   Lock,
   User,
@@ -40,13 +36,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   const [serverPass, setServerPass] = useState(() => cookApi.getCredentials().pass);
   const [showPassword, setShowPassword] = useState(false);
   const [theme, setThemeState] = useState<'dark' | 'light'>(() => cookApi.getTheme());
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    tested: boolean;
-    success?: boolean;
-    latencyMs?: number;
-    message?: string;
-  }>({ tested: false });
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [authSavedFeedback, setAuthSavedFeedback] = useState(false);
 
@@ -78,23 +67,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     setTimeout(() => setAuthSavedFeedback(false), 3000);
   };
 
-  const handleSaveAndTest = async () => {
-    setIsTesting(true);
-    setTestResult({ tested: false });
-
-    cookApi.setServerUrl(serverUrl);
-    cookApi.setCredentials(serverUser, serverPass);
-    const result = await cookApi.testConnection(serverUrl, serverUser, serverPass);
-
-    setIsTesting(false);
-    setTestResult({
-      tested: true,
-      success: result.success,
-      latencyMs: result.latencyMs,
-      message: result.message
-    });
-  };
-
   const handleSyncNow = async () => {
     cookApi.setServerUrl(serverUrl);
     cookApi.setCredentials(serverUser, serverPass);
@@ -117,12 +89,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     const next = theme === 'dark' ? 'light' : 'dark';
     setThemeState(next);
     cookApi.setTheme(next);
-  };
-
-  const handleClearCache = () => {
-    cookApi.clearCache();
-    setSyncFeedback('Offline recipe cache cleared');
-    setTimeout(() => setSyncFeedback(null), 3000);
   };
 
   const handleLogout = async () => {
@@ -211,41 +177,13 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                 <span>{isSyncing ? 'Synchronisiere...' : 'Rezepte jetzt synchronisieren'}</span>
               </button>
 
-              {/* Test Connection Button */}
               <button
-                onClick={handleSaveAndTest}
-                disabled={isTesting}
-                className="h-10 px-3.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-medium hover:bg-stone-300 dark:hover:bg-stone-700 flex items-center gap-1.5 active:scale-95"
-              >
-                <Wifi className="w-3.5 h-3.5" />
-                <span>{isTesting ? 'Prüfe...' : 'Testen'}</span>
-              </button>
-
-              <button
-                onClick={() => setServerUrl(DEFAULT_SERVER_URL)}
+                onClick={() => handleUrlChange(DEFAULT_SERVER_URL)}
                 className="h-10 px-3 rounded-xl bg-stone-200/60 dark:bg-stone-800/60 text-stone-600 dark:text-stone-400 text-xs font-medium hover:bg-stone-300 dark:hover:bg-stone-700"
               >
                 Zurücksetzen
               </button>
             </div>
-
-            {/* Test result feedback */}
-            {testResult.tested && (
-              <div
-                className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-                  testResult.success
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                }`}
-              >
-                {testResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                )}
-                <span>{testResult.message}</span>
-              </div>
-            )}
 
             {/* Sync feedback */}
             {syncFeedback && (
@@ -375,31 +313,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               {theme === 'dark' ? <Moon className="w-3.5 h-3.5 text-[#DE5D4E]" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
               <span>{theme === 'dark' ? 'Dunkel' : 'Hell'}</span>
             </button>
-          </div>
-
-          {/* Cache Management */}
-          <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 block">
-              Offline-Speicher
-            </span>
-            <button
-              onClick={handleClearCache}
-              className="px-3 py-2 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-medium flex items-center gap-1.5 hover:bg-stone-300 active:scale-95"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Offline-Cache leeren</span>
-            </button>
-          </div>
-
-          {/* Quick Info */}
-          <div className="p-3 rounded-xl bg-stone-100 dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800/80 text-[11px] text-stone-500 dark:text-stone-400 space-y-1">
-            <div className="font-semibold text-stone-700 dark:text-stone-300 flex items-center gap-1">
-              <Terminal className="w-3.5 h-3.5 text-[#DE5D4E]" />
-              <span>So funktioniert die Synchronisation:</span>
-            </div>
-            <p>
-              Wenn dein Cook CLI Server läuft (z. B. <code>cook server</code>), werden Rezepte beim Öffnen der App automatisch synchronisiert. Klicke oben auf <strong>Rezepte jetzt synchronisieren</strong>, um neue oder bearbeitete <code>.cook</code>-Dateien sofort zu laden.
-            </p>
           </div>
         </div>
       </div>

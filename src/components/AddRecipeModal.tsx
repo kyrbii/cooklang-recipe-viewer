@@ -1,65 +1,42 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-  X,
-  ExternalLink,
-  Download,
-  FileText,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  Tag,
-  Loader2
-} from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, FileText, Sparkles, CheckCircle2, AlertCircle, Tag, Loader2 } from 'lucide-react';
 import { cookApi } from '../services/cookApi';
 import type { Recipe } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import type { ShareDraft } from '../utils/shareImport';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRecipeSaved: (recipe: Recipe) => void;
+  /** Von einer Teilen-Aktion übergeben, wird beim Öffnen vorausgefüllt */
+  shareDraft?: ShareDraft | null;
 }
 
 export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
   isOpen,
   onClose,
-  onRecipeSaved
+  onRecipeSaved,
+  shareDraft
 }) => {
-  const [activeTab, setActiveTab] = useState<'ai' | 'cookify' | 'text'>('ai');
+  // Der Dialog wird bei jedem Öffnen neu gemountet, daher reichen die Startwerte
+  const [activeTab, setActiveTab] = useState<'ai' | 'text'>('ai');
 
   // KI-Import states
-  const [aiMode, setAiMode] = useState<'url' | 'text' | 'photo'>('url');
-  const [aiInput, setAiInput] = useState('');
+  const [aiMode, setAiMode] = useState<'url' | 'text' | 'photo'>(shareDraft?.mode ?? 'url');
+  const [aiInput, setAiInput] = useState(shareDraft?.value ?? '');
   const [aiPhoto, setAiPhoto] = useState<{ data: string; mimeType: string; name: string } | null>(null);
   const [isConverting, setIsConverting] = useState(false);
 
   // Input states
-  const [cookifyUrl, setCookifyUrl] = useState('');
   const [recipeName, setRecipeName] = useState('');
   const [cookContent, setCookContent] = useState('');
 
   // Status states
-  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameUserEdited, setNameUserEdited] = useState(false);
-
-  // Reset state when opening/closing
-  useEffect(() => {
-    if (!isOpen) {
-      setCookifyUrl('');
-      setRecipeName('');
-      setCookContent('');
-      setErrorMsg(null);
-      setNameUserEdited(false);
-      setIsFetchingUrl(false);
-      setIsSaving(false);
-      setAiInput('');
-      setAiPhoto(null);
-      setIsConverting(false);
-    }
-  }, [isOpen]);
 
   // Extract title from text content if available
   const extractTitleFromContent = (text: string): string | null => {
@@ -89,65 +66,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
       if (extracted) {
         setRecipeName(extracted);
       }
-    }
-  };
-
-  // Fetch recipe from cook.md cookify URL
-  const handleFetchCookifyUrl = async () => {
-    const rawUrl = cookifyUrl.trim();
-    if (!rawUrl) {
-      setErrorMsg('Bitte gib eine gültige cook.md URL ein.');
-      return;
-    }
-
-    setErrorMsg(null);
-    setIsFetchingUrl(true);
-
-    try {
-      // Extract cookify ID if present
-      // Examples:
-      // https://cook.md/cookifies/7ca41fed-2b43-4178-ac95-90124a63139e
-      // https://cook.md/cookifies/7ca41fed-2b43-4178-ac95-90124a63139e/download
-      let downloadUrl = rawUrl;
-      const cookifyMatch = rawUrl.match(/cookifies\/([a-zA-Z0-9_-]+)/);
-      if (cookifyMatch) {
-        const id = cookifyMatch[1];
-        downloadUrl = `https://cook.md/cookifies/${id}/download`;
-      }
-
-      const res = await fetch(downloadUrl);
-      if (!res.ok) {
-        throw new Error(`Konnte Rezept nicht laden (HTTP ${res.status}). Bitte überprüfe die URL.`);
-      }
-
-      // Check content-disposition header for suggested filename
-      const disposition = res.headers.get('content-disposition');
-      let suggestedName = '';
-      if (disposition) {
-        const fnMatch = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
-        if (fnMatch && fnMatch[1]) {
-          suggestedName = decodeURIComponent(fnMatch[1]).replace(/\.cook$/i, '').trim();
-        }
-      }
-
-      const text = await res.text();
-      setCookContent(text);
-
-      // Auto-set recipe name
-      const titleFromText = extractTitleFromContent(text);
-      const chosenName = suggestedName || titleFromText || 'Neues Rezept';
-      if (!nameUserEdited || !recipeName) {
-        setRecipeName(chosenName);
-      }
-
-      setActiveTab('text');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Fehler beim Laden des Rezepts.';
-      setErrorMsg(
-        `${msg} Tipp: Du kannst den Inhalt auch direkt auf cook.md kopieren und im Reiter "Cooklang Text" einfügen.`
-      );
-    } finally {
-      setIsFetchingUrl(false);
     }
   };
 
@@ -340,17 +258,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               <span>KI-Import</span>
             </button>
             <button
-              onClick={() => setActiveTab('cookify')}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                activeTab === 'cookify'
-                  ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#DE5D4E]" />
-              <span>cook.md Link</span>
-            </button>
-            <button
               onClick={() => setActiveTab('text')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
                 activeTab === 'text'
@@ -363,7 +270,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
             </button>
           </div>
 
-          {/* Tab 0: KI-Import (URL, Text oder Foto) */}
+          {/* Tab: KI-Import (URL, Text oder Foto) */}
           {activeTab === 'ai' && (
             <div className="space-y-3.5">
               <div className="flex rounded-lg bg-stone-200/60 dark:bg-stone-800/60 p-0.5 text-[11px] font-semibold">
@@ -464,80 +371,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
             </div>
           )}
 
-          {/* Tab 1: cook.md URL import */}
-          {activeTab === 'cookify' && (
-            <div className="space-y-3.5">
-              <div className="p-3.5 rounded-xl bg-orange-50/70 dark:bg-orange-950/20 border border-orange-200/60 dark:border-orange-900/30 flex items-start justify-between gap-3">
-                <div className="text-xs text-stone-700 dark:text-stone-300 leading-relaxed">
-                  <p className="font-semibold text-stone-900 dark:text-stone-100 mb-0.5">
-                    Rezept aus Link oder Foto erstellen
-                  </p>
-                  Du kannst beliebige Rezept-URLs oder Fotos auf <strong>cook.md</strong> in Cooklang umwandeln.
-                </div>
-                <a
-                  href="https://cook.md/cookifies/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 rounded-lg bg-[#DE5D4E] hover:bg-[#cf5142] text-white text-[11px] font-semibold flex items-center gap-1 shrink-0 shadow-xs transition-colors"
-                >
-                  <span>cook.md</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5 block">
-                  cook.md Cookify URL
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={cookifyUrl}
-                    onChange={(e) => setCookifyUrl(e.target.value)}
-                    placeholder="https://cook.md/cookifies/..."
-                    className="flex-1 h-11 px-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
-                  />
-                  <button
-                    onClick={handleFetchCookifyUrl}
-                    disabled={isFetchingUrl || !cookifyUrl.trim()}
-                    className="h-11 px-4 rounded-xl bg-[#DE5D4E] hover:bg-[#cf5142] text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all disabled:opacity-50 shrink-0"
-                  >
-                    {isFetchingUrl ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Lädt...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Laden</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <p className="text-[11px] text-stone-400 dark:text-stone-500 mt-1">
-                  Beispiel: <span className="font-mono">https://cook.md/cookifies/7ca41fed-...</span>
-                </p>
-              </div>
-
-              {cookContent && (
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Rezept erfolgreich geladen ({cookContent.split('\n').length} Zeilen)</span>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('text')}
-                    className="text-xs font-semibold underline hover:no-underline"
-                  >
-                    Text ansehen
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tab 2: Raw Cooklang Text */}
+          {/* Tab: Cooklang Text */}
           {activeTab === 'text' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">

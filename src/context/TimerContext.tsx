@@ -1,18 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { ActiveTimer } from '../types/cook';
-
-interface TimerContextType {
-  timers: ActiveTimer[];
-  addTimer: (name: string, durationSeconds: number, recipeId?: string, stepNumber?: number) => string;
-  startTimer: (id: string) => void;
-  pauseTimer: (id: string) => void;
-  resetTimer: (id: string) => void;
-  addTime: (id: string, extraSeconds: number) => void;
-  removeTimer: (id: string) => void;
-  activeCount: number;
-}
-
-const TimerContext = createContext<TimerContextType | undefined>(undefined);
+import { TimerContext } from './useTimers';
 
 // Kitchen chime synthesizer using Web Audio API
 function playTimerChime() {
@@ -217,11 +205,3 @@ export const TimerProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     </TimerContext.Provider>
   );
 };
-
-export function useTimers(): TimerContextType {
-  const context = useContext(TimerContext);
-  if (!context) {
-    throw new Error('useTimers must be used within a TimerProvider');
-  }
-  return context;
-}

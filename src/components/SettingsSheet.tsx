@@ -46,20 +46,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     cookApi.setServerUrl(val);
   };
 
-  const handleUserChange = (val: string) => {
-    setServerUser(val);
-    cookApi.setCredentials(val, serverPass);
-    setAuthSavedFeedback(true);
-    setTimeout(() => setAuthSavedFeedback(false), 2000);
-  };
-
-  const handlePassChange = (val: string) => {
-    setServerPass(val);
-    cookApi.setCredentials(serverUser, val);
-    setAuthSavedFeedback(true);
-    setTimeout(() => setAuthSavedFeedback(false), 2000);
-  };
-
   const handleSaveCredentials = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     cookApi.setCredentials(serverUser, serverPass);
@@ -238,7 +224,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                   name="username"
                   type="text"
                   value={serverUser}
-                  onChange={(e) => handleUserChange(e.target.value)}
+                  onChange={(e) => setServerUser(e.target.value)}
                   placeholder="Benutzername"
                   autoComplete="username"
                   className="w-full h-10 px-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
@@ -259,7 +245,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                     name="password"
                     type={showPassword ? 'text' : 'password'}
                     value={serverPass}
-                    onChange={(e) => handlePassChange(e.target.value)}
+                    onChange={(e) => setServerPass(e.target.value)}
                     placeholder="••••••••"
                     autoComplete="current-password"
                     className="w-full h-10 pl-3 pr-8 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"

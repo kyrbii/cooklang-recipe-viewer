@@ -17,6 +17,8 @@ export interface CookIngredient {
   quantity?: number | string;
   units?: string;
   optional?: boolean;
+  /** Einzelmengen, aus denen eine zusammengefasste Zutat entstanden ist */
+  sources?: Array<{ quantity?: number | string; units?: string }>;
 }
 
 export interface CookCookware {

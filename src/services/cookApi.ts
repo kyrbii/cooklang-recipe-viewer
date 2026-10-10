@@ -74,7 +74,9 @@ class CookApiService {
       if (storedUser) {
         this.serverUser = storedUser.trim();
       }
-      const storedPass = localStorage.getItem(STORAGE_KEYS.SERVER_PASS);
+      // Passwort nur für die Sitzung. Alte Einträge aus localStorage werden entfernt.
+      localStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
+      const storedPass = sessionStorage.getItem(STORAGE_KEYS.SERVER_PASS);
       if (storedPass) {
         this.serverPass = storedPass;
       }
@@ -111,9 +113,9 @@ class CookApiService {
         localStorage.removeItem(STORAGE_KEYS.SERVER_USER);
       }
       if (this.serverPass) {
-        localStorage.setItem(STORAGE_KEYS.SERVER_PASS, this.serverPass);
+        sessionStorage.setItem(STORAGE_KEYS.SERVER_PASS, this.serverPass);
       } else {
-        localStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
+        sessionStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
       }
     } catch {
       // Ignore
@@ -268,7 +270,6 @@ class CookApiService {
         credentials: 'omit',
         headers: {
           Accept: 'application/json, text/plain, */*',
-          'X-Requested-With': 'XMLHttpRequest',
           ...this.getAuthHeaders(),
           ...(options.headers || {})
         }
@@ -861,6 +862,15 @@ class CookApiService {
     if (!src) return '';
     if (src.startsWith('data:') || src.startsWith('blob:')) return src;
 
+    // Fremde Bild-Hosts (z. B. aus dem Rezept-Frontmatter) ohne Zugangsdaten direkt laden
+    if (/^https?:\/\//i.test(src)) {
+      try {
+        if (new URL(src).origin !== new URL(this.serverUrl).origin) return src;
+      } catch {
+        return src;
+      }
+    }
+
     let fullUrl = src;
     if (!src.startsWith('http://') && !src.startsWith('https://')) {
       const base = this.serverUrl.replace(/\/+$/, '');
@@ -880,7 +890,6 @@ class CookApiService {
         credentials: 'omit',
         headers: {
           Accept: 'image/*,*/*',
-          'X-Requested-With': 'XMLHttpRequest',
           ...authHeaders
         }
       });
@@ -893,9 +902,9 @@ class CookApiService {
         return objectUrl;
       }
     } catch {
-      // Fallback to original url
+      // Fehler unten weiterreichen, der Aufrufer zeigt dann den Platzhalter
     }
-    return fullUrl;
+    throw new Error(`Bild konnte nicht geladen werden: ${fullUrl}`);
   }
 
   public clearImageCache(): void {

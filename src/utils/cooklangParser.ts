@@ -103,6 +103,72 @@ export function scaleQuantity(
 }
 
 /**
+ * Fasst gleiche Zutaten (Name + Einheit) zu einer Zeile zusammen und addiert die Mengen.
+ * Fehlt eine Menge, wird die andere übernommen. Unterschiedliche Einheiten bleiben getrennt.
+ */
+export function aggregateIngredients(list: CookIngredient[]): CookIngredient[] {
+  const sourcesOf = (ing: CookIngredient) =>
+    ing.sources ?? (parseQuantity(ing.quantity) !== null ? [{ quantity: ing.quantity, units: ing.units }] : []);
+
+  const map = new Map<string, CookIngredient>();
+  for (const ing of list) {
+    const name = ing.name.replace(/^\?+\s*/, '').trim();
+    const unit = (ing.units || '').trim().toLowerCase();
+    const key = `${name.toLowerCase()}|${unit}|${ing.optional ? 'opt' : 'req'}`;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...ing, name });
+      continue;
+    }
+    const added = parseQuantity(ing.quantity);
+    if (added === null) continue;
+    existing.sources = [...sourcesOf(existing), ...sourcesOf(ing)];
+    const current = parseQuantity(existing.quantity);
+    existing.quantity = current === null ? added : current + added;
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Gruppiert gleiche Zutaten nebeneinander (auch bei unterschiedlichen Mengen oder Einheiten).
+ * Gruppen mit einer Menge kommen nach der größten Menge absteigend, reine Zutaten ohne Menge ans Ende.
+ * Innerhalb einer Gruppe: größte Menge zuerst, ohne Menge ganz unten.
+ */
+export function sortIngredientsByQuantity(list: CookIngredient[]): CookIngredient[] {
+  const nameKey = (ing: CookIngredient) => ing.name.replace(/^\?+\s*/, '').trim().toLowerCase();
+
+  const groupBest = new Map<string, number | null>();
+  const groupFirst = new Map<string, number>();
+  list.forEach((ing, idx) => {
+    const key = nameKey(ing);
+    if (!groupFirst.has(key)) groupFirst.set(key, idx);
+    const qty = parseQuantity(ing.quantity);
+    const current = groupBest.get(key) ?? null;
+    groupBest.set(key, current === null ? qty : qty === null ? current : Math.max(current, qty));
+  });
+
+  return list
+    .map((ing, idx) => ({ ing, idx, key: nameKey(ing), qty: parseQuantity(ing.quantity) }))
+    .sort((a, b) => {
+      if (a.key !== b.key) {
+        const bestA = groupBest.get(a.key) ?? null;
+        const bestB = groupBest.get(b.key) ?? null;
+        const firstDiff = groupFirst.get(a.key)! - groupFirst.get(b.key)!;
+        if (bestA === null && bestB === null) return firstDiff;
+        if (bestA === null) return 1;
+        if (bestB === null) return -1;
+        return bestB - bestA || firstDiff;
+      }
+      if (a.qty === null && b.qty === null) return a.idx - b.idx;
+      if (a.qty === null) return 1;
+      if (b.qty === null) return -1;
+      return b.qty - a.qty || a.idx - b.idx;
+    })
+    .map((x) => x.ing);
+}
+
+/**
  * Parse timer unit to seconds
  */
 export function unitToSeconds(unitStr: string, qty: number): number {
@@ -312,7 +378,7 @@ export function parseCooklangText(content: string, path: string): Recipe {
   const filename = path.split('/').pop()?.replace(/\.cook$/i, '') || 'Recipe';
   const name = (metadata.title as string) || filename.replace(/[-_]/g, ' ');
 
-  const allIngredientsMap = new Map<string, CookIngredient>();
+  const allIngredients: CookIngredient[] = [];
   const allCookwareMap = new Map<string, CookCookware>();
   const steps: CookStep[] = [];
   const sectionsMap = new Map<string | undefined, CookStep[]>();
@@ -338,20 +404,7 @@ export function parseCooklangText(content: string, path: string): Recipe {
       }
       sectionsMap.get(rawStep.section)!.push(step);
 
-      // Aggregate ingredients (optional amounts separated according to spec)
-      ingredients.forEach((ing) => {
-        const key = `${ing.name.toLowerCase()}|${(ing.units || '').toLowerCase()}|${ing.optional ? 'opt' : 'req'}`;
-        if (!allIngredientsMap.has(key)) {
-          allIngredientsMap.set(key, { ...ing });
-        } else {
-          const existing = allIngredientsMap.get(key)!;
-          const exQty = parseQuantity(existing.quantity);
-          const curQty = parseQuantity(ing.quantity);
-          if (exQty !== null && curQty !== null) {
-            existing.quantity = exQty + curQty;
-          }
-        }
-      });
+      allIngredients.push(...ingredients);
 
       // Aggregate cookware
       cookware.forEach((cw) => {
@@ -381,7 +434,7 @@ export function parseCooklangText(content: string, path: string): Recipe {
     metadata,
     steps,
     sections,
-    ingredients: Array.from(allIngredientsMap.values()),
+    ingredients: aggregateIngredients(allIngredients),
     cookware: Array.from(allCookwareMap.values()),
     notes: notesRaw.length > 0 ? notesRaw : undefined,
     rawCook: content,

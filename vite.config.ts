@@ -23,6 +23,11 @@ export default defineConfig({
         background_color: '#FAF8F5',
         display: 'standalone',
         orientation: 'portrait',
+        share_target: {
+          action: '/',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' }
+        },
         icons: [
           {
             src: '/pwa-icon.svg',

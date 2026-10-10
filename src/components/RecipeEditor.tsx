@@ -28,7 +28,12 @@ import {
 import type { ConnectionStatus, Recipe, StepItem } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import type { RecipeDraft } from '../types/cook';
-import { normalizeServerRecipe, parseStepText } from '../utils/cooklangParser';
+import {
+  aggregateIngredients,
+  normalizeServerRecipe,
+  parseStepText,
+  sortIngredientsByQuantity
+} from '../utils/cooklangParser';
 import { highlightCooklang } from '../utils/cooklangHighlight';
 import { AuthenticatedImage } from './AuthenticatedImage';
 
@@ -122,7 +127,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
     }
   }, [path]);
 
+  // Laden beim Öffnen und bei Pfadwechsel: die Zustandsänderungen sind hier gewollt
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect
     load();
   }, [load]);
 
@@ -843,6 +850,10 @@ const RecipePreview: React.FC<{
   fallbackName: string;
   image?: string;
 }> = ({ recipe, fallbackName, image }) => {
+  const ingredients = useMemo(
+    () => (recipe ? sortIngredientsByQuantity(aggregateIngredients(recipe.ingredients)) : []),
+    [recipe]
+  );
   const groupedSections = useMemo(() => {
     if (!recipe) return [];
     let rawGroups: Array<{ name?: string; steps: typeof recipe.steps }> = [];
@@ -958,16 +969,16 @@ const RecipePreview: React.FC<{
       )}
 
       {/* Ingredients */}
-      {recipe.ingredients.length > 0 && (
+      {ingredients.length > 0 && (
         <div className="mt-6 pt-4 border-t border-stone-200/70 dark:border-stone-800/80">
           <h3 className="font-mela-serif text-lg font-bold text-stone-900 dark:text-stone-100 mb-2">
             Zutaten{' '}
             <span className="text-sm font-normal text-stone-400">
-              ({recipe.ingredients.length})
+              ({ingredients.length})
             </span>
           </h3>
           <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
-            {recipe.ingredients.map((ing, i) => {
+            {ingredients.map((ing, i) => {
               const isOptional = Boolean(ing.optional || ing.name.startsWith('?'));
               const cleanName = ing.name.replace(/^\?+\s*/, '').trim();
               const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
@@ -986,6 +997,13 @@ const RecipePreview: React.FC<{
                       </span>
                     )}
                     {displayName}
+                    {ing.sources && ing.sources.length > 1 && (
+                      <span className="ml-1.5 text-xs text-stone-400 dark:text-stone-500">
+                        ({ing.sources
+                          .map((src) => [src.quantity, src.units].filter((v) => v !== undefined && v !== '').join(' '))
+                          .join(' und ')})
+                      </span>
+                    )}
                   </span>
                 </li>
               );

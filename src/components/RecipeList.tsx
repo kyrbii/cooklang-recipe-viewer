@@ -42,11 +42,6 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync favorites when window focuses or recipes change
-  useEffect(() => {
-    setFavorites(cookApi.getFavorites());
-  }, [recipes]);
-
   const handleToggleFavorite = (recipeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     cookApi.toggleFavorite(recipeId);

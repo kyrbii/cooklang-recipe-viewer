@@ -7,7 +7,10 @@ import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeEditor } from './components/RecipeEditor';
 import { SettingsSheet } from './components/SettingsSheet';
 import { AddRecipeModal } from './components/AddRecipeModal';
-import { TimerProvider, useTimers } from './context/TimerContext';
+import { TimerProvider } from './context/TimerContext';
+import { useTimers } from './context/useTimers';
+import { findRecipeByKey, recipeHash, recipeKeyFromHash } from './utils/recipeLink';
+import { shareDraftFromParams, type ShareDraft } from './utils/shareImport';
 
 function formatRemaining(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -20,12 +23,55 @@ const MelaApp: React.FC = () => {
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  // Geteilter Inhalt (z. B. Reel-Text aus Instagram) öffnet den Import direkt
+  const [shareDraft, setShareDraft] = useState<ShareDraft | null>(() =>
+    shareDraftFromParams(new URLSearchParams(window.location.search))
+  );
+  const [isAddModalOpen, setIsAddModalOpen] = useState(() => shareDraft !== null);
+
+  useEffect(() => {
+    if (window.location.search) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    }
+  }, []);
+  const [isLoading, setIsLoading] = useState(() => cookApi.getCachedRecipes().length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>(() => cookApi.getStatus());
 
   const { timers, pauseTimer, startTimer, removeTimer } = useTimers();
+
+  // Rezept öffnen und schließen. Die URL folgt der Auswahl, damit Links und der Zurück-Button funktionieren.
+  const openRecipe = useCallback((recipe: Recipe) => {
+    setSelectedRecipe(recipe);
+    const target = recipeHash(recipe);
+    if (window.location.hash !== target) {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${target}`);
+    }
+  }, []);
+
+  const closeRecipe = useCallback(() => {
+    setSelectedRecipe(null);
+    if (recipeKeyFromHash(window.location.hash) !== null) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+  }, []);
+
+  // Browser-Zurück und Vor: Auswahl an den Hash anpassen
+  useEffect(() => {
+    const onPopState = () => {
+      const key = recipeKeyFromHash(window.location.hash);
+      setSelectedRecipe(key ? findRecipeByKey(recipes, key) : null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [recipes]);
+
+  // Direktlink: solange nichts gewählt ist, das Rezept aus dem Hash nehmen (sobald die Rezepte da sind)
+  const shownRecipe =
+    selectedRecipe ??
+    (recipeKeyFromHash(window.location.hash) !== null
+      ? findRecipeByKey(recipes, recipeKeyFromHash(window.location.hash)!)
+      : null);
 
   // Initialize theme and status listeners
   useEffect(() => {
@@ -65,22 +111,20 @@ const MelaApp: React.FC = () => {
 
   // Initial load: show cached immediately, then sync with server
   useEffect(() => {
-    const initialCached = cookApi.getCachedRecipes();
-    if (initialCached.length === 0) {
-      setIsLoading(true);
-    }
+    // Synchronisation mit dem Server ist ein externes System, daher ist der Effekt richtig
+    // oxlint-disable-next-line react/set-state-in-effect
     handleSync();
   }, [handleSync]);
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-stone-900 dark:bg-[#121110] dark:text-stone-100 flex flex-col transition-colors duration-200">
       <main className="flex-1 flex flex-col">
-        {selectedRecipe ? (
+        {shownRecipe ? (
           <RecipeDetail
-            recipe={selectedRecipe}
-            onBack={() => setSelectedRecipe(null)}
+            recipe={shownRecipe}
+            onBack={closeRecipe}
             onOpenSettings={() => setIsSettingsOpen(true)}
-            onEdit={() => setEditingRecipe(selectedRecipe)}
+            onEdit={() => setEditingRecipe(shownRecipe)}
           />
         ) : (
           <RecipeList
@@ -89,7 +133,7 @@ const MelaApp: React.FC = () => {
             isSyncing={isSyncing}
             status={status}
             onSync={handleSync}
-            onSelectRecipe={(r) => setSelectedRecipe(r)}
+            onSelectRecipe={openRecipe}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onAddRecipe={() => setIsAddModalOpen(true)}
           />
@@ -117,7 +161,7 @@ const MelaApp: React.FC = () => {
                       const found = recipes.find(
                         (r) => r.id === timer.recipeId || r.path === timer.recipeId || r.name === timer.recipeId
                       );
-                      if (found) setSelectedRecipe(found);
+                      if (found) openRecipe(found);
                     }
                   }}
                   title="Zum Rezept springen"
@@ -165,7 +209,7 @@ const MelaApp: React.FC = () => {
           onClose={() => setEditingRecipe(null)}
           onSaved={(updatedRecipe) => {
             setEditingRecipe(null);
-            setSelectedRecipe(updatedRecipe);
+            openRecipe(updatedRecipe);
             setRecipes((prev) => {
               const next = [...prev];
               const idx = next.findIndex(
@@ -184,14 +228,20 @@ const MelaApp: React.FC = () => {
       )}
 
       {/* Add / Import Recipe Modal */}
-      <AddRecipeModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onRecipeSaved={(newRecipe) => {
-          setSelectedRecipe(newRecipe);
-          handleSync();
-        }}
-      />
+      {isAddModalOpen && (
+        <AddRecipeModal
+          isOpen={isAddModalOpen}
+          onClose={() => {
+            setIsAddModalOpen(false);
+            setShareDraft(null);
+          }}
+          shareDraft={shareDraft}
+          onRecipeSaved={(newRecipe) => {
+            openRecipe(newRecipe);
+            handleSync();
+          }}
+        />
+      )}
 
       {/* Mela-styled Settings Sheet */}
       <SettingsSheet

@@ -19,9 +19,16 @@ import {
   Sparkles
 } from 'lucide-react';
 import type { Recipe, StepItem } from '../types/cook';
-import { parseQuantity, parseStepText, scaleQuantity } from '../utils/cooklangParser';
+import {
+  aggregateIngredients,
+  parseQuantity,
+  parseStepText,
+  scaleQuantity,
+  sortIngredientsByQuantity
+} from '../utils/cooklangParser';
 import { cookApi } from '../services/cookApi';
-import { useTimers } from '../context/TimerContext';
+import { useTimers } from '../context/useTimers';
+import { recipeShareUrl } from '../utils/recipeLink';
 import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface RecipeDetailProps {
@@ -138,6 +145,11 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
   const ratio = currentServings / baseServings;
 
+  const ingredients = useMemo(
+    () => sortIngredientsByQuantity(aggregateIngredients(recipe.ingredients)),
+    [recipe]
+  );
+
   const tags = useMemo(() => {
     const raw = recipe.metadata.tags ?? recipe.metadata.tag;
     if (Array.isArray(raw)) {
@@ -172,19 +184,20 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   };
 
   const handleShare = async () => {
+    const url = recipeShareUrl(recipe);
     if (navigator.share) {
       try {
         await navigator.share({
           title: recipe.name,
-          text: `Check out this recipe: ${recipe.name}`,
-          url: window.location.href
+          text: `Rezept: ${recipe.name}`,
+          url
         });
         return;
       } catch {
         // Fallback to clipboard
       }
     }
-    navigator.clipboard?.writeText(window.location.href);
+    navigator.clipboard?.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -529,11 +542,11 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   Zutaten
                 </h2>
                 <span className="text-xs text-stone-500 dark:text-stone-400">
-                  ({recipe.ingredients.length})
+                  ({ingredients.length})
                 </span>
               </div>
               <span className="text-xs font-medium text-stone-500 dark:text-stone-400">
-                {checkedIngredients.size}/{recipe.ingredients.length} erledigt
+                {checkedIngredients.size}/{ingredients.length} erledigt
               </span>
             </div>
 
@@ -591,7 +604,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
             {/* Checklist of Ingredients */}
             <div className="space-y-1">
-              {recipe.ingredients.map((ing, idx) => {
+              {ingredients.map((ing, idx) => {
                 const isOptional = Boolean(ing.optional || ing.name.startsWith('?'));
                 const cleanName = ing.name.replace(/^\?+\s*/, '').trim();
                 const itemKey = isOptional ? `${cleanName} (optional)` : cleanName;
@@ -622,6 +635,13 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                         </span>
                       )}
                       <span>{cleanName}</span>
+                      {ing.sources && ing.sources.length > 1 && (
+                        <span className="ml-1.5 text-xs text-stone-400 dark:text-stone-500 font-normal">
+                          ({ing.sources
+                            .map((src) => [scaleQuantity(src.quantity, ratio), src.units].filter(Boolean).join(' '))
+                            .join(' und ')})
+                        </span>
+                      )}
                       {isOptional && (
                         <span className="ml-1.5 text-xs text-stone-500 dark:text-stone-400 font-normal">
                           (optional)

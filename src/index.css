@@ -14,6 +14,9 @@
     overscroll-behavior-y: contain;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    /* Kein horizontales Scrollen, lange Wörter und URLs brechen um */
+    overflow-x: hidden;
+    overflow-wrap: anywhere;
   }
 
   h1,

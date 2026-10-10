@@ -144,6 +144,8 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
 
   const ratio = currentServings / baseServings;
+  // Faktor zur Anzeige: maximal zwei Nachkommastellen, ohne unnötige Nullen
+  const ratioLabel = Number(ratio.toFixed(2)).toString();
 
   const ingredients = useMemo(
     () => sortIngredientsByQuantity(aggregateIngredients(recipe.ingredients)),
@@ -395,7 +397,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   </span>
                   <span>Portionen</span>
                   {ratio !== 1 && (
-                    <span className="text-[#DE5D4E] font-semibold">({ratio}x)</span>
+                    <span className="text-[#DE5D4E] font-semibold">({ratioLabel}x)</span>
                   )}
                 </div>
 
@@ -560,7 +562,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   </span>
                   {ratio !== 1 && (
                     <span className="text-[11px] font-semibold text-[#DE5D4E] bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
-                      {ratio}x
+                      {ratioLabel}x
                     </span>
                   )}
                 </div>

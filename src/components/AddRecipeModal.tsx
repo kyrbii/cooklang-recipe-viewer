@@ -69,6 +69,21 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
+  // Zwischenablage auslesen (benötigt die Berechtigung des Browsers, meist nach Klick erlaubt)
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        setErrorMsg('Die Zwischenablage ist leer.');
+        return;
+      }
+      setErrorMsg(null);
+      setAiInput(text);
+    } catch {
+      setErrorMsg('Zugriff auf die Zwischenablage nicht möglich. Bitte füge den Text direkt in das Feld ein.');
+    }
+  };
+
   // KI-Import: URL, Text oder Foto über den ai-import Dienst in Cooklang umwandeln
   const handleAiImport = async () => {
     setErrorMsg(null);
@@ -317,10 +332,25 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               )}
 
               {aiMode === 'text' && (
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5 block">
-                    Rezepttext (z. B. Beschreibung eines Reels)
-                  </label>
+                <div className="space-y-2">
+                  {shareDraft?.notice === 'instagram-link' && (
+                    <div className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-950/20 border border-orange-200/60 dark:border-orange-900/30 text-xs text-stone-700 dark:text-stone-300 leading-relaxed">
+                      Instagram schickt beim Teilen nur den Link. Kopiere die Beschreibung des Reels in Instagram
+                      (Text lange drücken, „Kopieren“) und tippe danach auf „Aus Zwischenablage einfügen“.
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                      Rezepttext (z. B. Beschreibung eines Reels)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={pasteFromClipboard}
+                      className="px-2.5 py-1 rounded-lg bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-[11px] font-semibold hover:bg-stone-300 dark:hover:bg-stone-700 active:scale-95 transition-all"
+                    >
+                      Aus Zwischenablage einfügen
+                    </button>
+                  </div>
                   <textarea
                     value={aiInput}
                     onChange={(e) => setAiInput(e.target.value)}

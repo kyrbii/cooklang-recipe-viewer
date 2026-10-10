@@ -14,6 +14,7 @@ import {
 import { cookApi } from '../services/cookApi';
 import type { Recipe } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
+import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -417,7 +418,7 @@ Mit @Gemüsebrühe{500%ml} ablöschen und für ~{15%min} köcheln lassen.`}
               </span>
               <div className="flex items-center gap-3">
                 {previewRecipe.image ? (
-                  <img
+                  <AuthenticatedImage
                     src={previewRecipe.image}
                     alt={previewRecipe.name}
                     className="w-12 h-12 rounded-lg object-cover bg-stone-200 shrink-0"

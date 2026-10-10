@@ -30,6 +30,7 @@ import { cookApi } from '../services/cookApi';
 import type { RecipeDraft } from '../types/cook';
 import { normalizeServerRecipe, parseStepText } from '../utils/cooklangParser';
 import { highlightCooklang } from '../utils/cooklangHighlight';
+import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface RecipeEditorProps {
   recipe: Recipe;
@@ -909,7 +910,7 @@ const RecipePreview: React.FC<{
 
       <div className="flex items-center gap-4">
         {img && (
-          <img
+          <AuthenticatedImage
             src={img}
             alt=""
             className="w-20 h-20 rounded-2xl object-cover border-2 border-white dark:border-stone-800 shadow-md shrink-0"

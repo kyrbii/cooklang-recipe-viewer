@@ -108,6 +108,7 @@ class CookApiService {
   public setCredentials(user: string, pass: string): void {
     this.serverUser = user.trim();
     this.serverPass = pass;
+    this.clearImageCache();
     try {
       if (this.serverUser) {
         localStorage.setItem(STORAGE_KEYS.SERVER_USER, this.serverUser);
@@ -131,9 +132,10 @@ class CookApiService {
   public getAuthHeaders(overrideUser?: string, overridePass?: string): Record<string, string> {
     const user = overrideUser !== undefined ? overrideUser.trim() : this.serverUser;
     const pass = overridePass !== undefined ? overridePass : this.serverPass;
-    if (user && pass) {
+    if (user) {
       try {
-        const encoded = btoa(unescape(encodeURIComponent(`${user}:${pass}`)));
+        const str = `${user}:${pass || ''}`;
+        const encoded = btoa(unescape(encodeURIComponent(str)));
         return { Authorization: `Basic ${encoded}` };
       } catch {
         // Fallback
@@ -290,8 +292,10 @@ class CookApiService {
         const res = await fetch(url, {
           ...options,
           signal: controller.signal,
+          credentials: 'omit',
           headers: {
             Accept: 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
             ...authHeaders,
             ...(options.headers || {})
           }
@@ -399,6 +403,10 @@ class CookApiService {
       const res = await this.fetchApi('api/recipes');
 
       if (!res.ok) {
+        if (res.status === 401) {
+          this.setStatus('error');
+          throw new Error('401 Unauthorized (Zugangsdaten erforderlich oder fehlerhaft)');
+        }
         throw new Error(`Server returned HTTP ${res.status}`);
       }
 
@@ -415,7 +423,9 @@ class CookApiService {
         recipes
       };
     } catch (err: unknown) {
-      this.setStatus('disconnected');
+      if (this.connectionStatus !== 'error') {
+        this.setStatus('disconnected');
+      }
       const cached = this.getCachedRecipes();
       const msg = err instanceof Error ? err.message : 'Server unreachable';
 
@@ -929,10 +939,70 @@ class CookApiService {
     }
   }
 
+  // ---- Authenticated Image Caching ----
+  private imageBlobCache = new Map<string, string>();
+
+  /**
+   * Fetches an image using Cook API auth headers and returns a local blob URL.
+   * Prevents browser native HTTP Basic Auth prompts from being triggered on images.
+   */
+  public async fetchImageBlob(src: string): Promise<string> {
+    if (!src) return '';
+    if (src.startsWith('data:') || src.startsWith('blob:')) return src;
+
+    let fullUrl = src;
+    if (!src.startsWith('http://') && !src.startsWith('https://')) {
+      const base = this.serverUrl.replace(/\/+$/, '');
+      fullUrl = `${base}/${src.replace(/^\/+/, '')}`;
+    }
+
+    if (this.imageBlobCache.has(fullUrl)) {
+      return this.imageBlobCache.get(fullUrl)!;
+    }
+
+    try {
+      const authHeaders = this.getAuthHeaders();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(fullUrl, {
+        signal: controller.signal,
+        credentials: 'omit',
+        headers: {
+          Accept: 'image/*,*/*',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...authHeaders
+        }
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        this.imageBlobCache.set(fullUrl, objectUrl);
+        return objectUrl;
+      }
+    } catch {
+      // Fallback to original url
+    }
+    return fullUrl;
+  }
+
+  public clearImageCache(): void {
+    for (const url of this.imageBlobCache.values()) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // Ignore
+      }
+    }
+    this.imageBlobCache.clear();
+  }
+
   /**
    * Clear all cached recipe data
    */
   public clearCache(): void {
+    this.clearImageCache();
     try {
       localStorage.removeItem(STORAGE_KEYS.RECIPES_CACHE);
       const keysToRemove: string[] = [];

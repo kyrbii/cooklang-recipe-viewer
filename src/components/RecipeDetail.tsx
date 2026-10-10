@@ -22,6 +22,7 @@ import type { Recipe, StepItem } from '../types/cook';
 import { parseQuantity, parseStepText, scaleQuantity } from '../utils/cooklangParser';
 import { cookApi } from '../services/cookApi';
 import { useTimers } from '../context/TimerContext';
+import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface RecipeDetailProps {
   recipe: Recipe;
@@ -335,7 +336,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             {/* Dish Photo */}
             {recipe.image && (
               <div className="overflow-hidden rounded-2xl sm:rounded-3xl shadow-lg border border-stone-200/60 dark:border-stone-800/80 bg-stone-200 dark:bg-stone-800">
-                <img
+                <AuthenticatedImage
                   src={recipe.image}
                   alt={recipe.name}
                   className="w-full h-56 sm:h-72 lg:h-84 xl:h-96 object-cover hover:scale-[1.01] transition-transform duration-500"

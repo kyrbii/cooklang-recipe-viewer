@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
+import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface RecipeListProps {
   recipes: Recipe[];
@@ -377,11 +378,16 @@ const RecipeCard: React.FC<{
       {/* Thumbnail */}
       <div className="w-full aspect-[16/10] overflow-hidden bg-stone-200 dark:bg-stone-800 relative">
         {recipe.image ? (
-          <img
+          <AuthenticatedImage
             src={recipe.image}
             alt={recipe.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
             loading="lazy"
+            fallback={
+              <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800/80 text-stone-400">
+                <Tag className="w-10 h-10 opacity-30" />
+              </div>
+            }
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800/80 text-stone-400">
@@ -474,11 +480,16 @@ const RecipeRow: React.FC<{
     >
       <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
         {recipe.image ? (
-          <img
+          <AuthenticatedImage
             src={recipe.image}
             alt={recipe.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
+            fallback={
+              <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800 text-stone-400">
+                <Tag className="w-6 h-6 opacity-40" />
+              </div>
+            }
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800 text-stone-400">

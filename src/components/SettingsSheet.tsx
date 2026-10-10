@@ -48,8 +48,35 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     message?: string;
   }>({ tested: false });
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [authSavedFeedback, setAuthSavedFeedback] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleUrlChange = (val: string) => {
+    setServerUrl(val);
+    cookApi.setServerUrl(val);
+  };
+
+  const handleUserChange = (val: string) => {
+    setServerUser(val);
+    cookApi.setCredentials(val, serverPass);
+    setAuthSavedFeedback(true);
+    setTimeout(() => setAuthSavedFeedback(false), 2000);
+  };
+
+  const handlePassChange = (val: string) => {
+    setServerPass(val);
+    cookApi.setCredentials(serverUser, val);
+    setAuthSavedFeedback(true);
+    setTimeout(() => setAuthSavedFeedback(false), 2000);
+  };
+
+  const handleSaveCredentials = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    cookApi.setCredentials(serverUser, serverPass);
+    setAuthSavedFeedback(true);
+    setTimeout(() => setAuthSavedFeedback(false), 3000);
+  };
 
   const handleSaveAndTest = async () => {
     setIsTesting(true);
@@ -168,7 +195,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             <input
               type="url"
               value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
+              onChange={(e) => handleUrlChange(e.target.value)}
               placeholder="http://192.168.1.50:9080"
               className="w-full h-11 px-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40 focus:border-[#DE5D4E]"
             />
@@ -230,34 +257,50 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           </div>
 
           {/* Authentication Card (HTTP Basic Auth for Nginx Proxy Manager) */}
-          <div className="space-y-3 p-4 rounded-2xl bg-white dark:bg-[#121110] border border-stone-200 dark:border-stone-800 shadow-xs">
+          <form
+            onSubmit={handleSaveCredentials}
+            className="space-y-3 p-4 rounded-2xl bg-white dark:bg-[#121110] border border-stone-200 dark:border-stone-800 shadow-xs"
+          >
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold uppercase tracking-wider text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-stone-500" />
                 <span>HTTP Basic Auth (optional)</span>
               </label>
-              {(serverUser.trim() || serverPass) && (
-                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>Aktiv</span>
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {authSavedFeedback && (
+                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1 animate-fadeIn">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                    <span>Gespeichert</span>
+                  </span>
+                )}
+                {(serverUser.trim() || serverPass) && !authSavedFeedback && (
+                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>Aktiv</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
-              Für Nginx Proxy Manager / Reverse Proxy Schutz. Wird automatisch als Authorization Header bei Lese- und Schreibzugriffen mitgesendet.
+              Für Nginx Proxy Manager / Reverse Proxy Schutz. Wird automatisch im Hintergrund als Authorization-Header bei allen API- und Bildabfragen mitgesendet, ohne den Browser-Login-Dialog auszulösen.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <label className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1">
+                <label
+                  htmlFor="cook-username"
+                  className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
+                >
                   <User className="w-3 h-3 text-stone-400" />
                   <span>Benutzername</span>
                 </label>
                 <input
+                  id="cook-username"
+                  name="username"
                   type="text"
                   value={serverUser}
-                  onChange={(e) => setServerUser(e.target.value)}
+                  onChange={(e) => handleUserChange(e.target.value)}
                   placeholder="Benutzername"
                   autoComplete="username"
                   className="w-full h-10 px-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
@@ -265,15 +308,20 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1">
+                <label
+                  htmlFor="cook-password"
+                  className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
+                >
                   <Key className="w-3 h-3 text-stone-400" />
                   <span>Passwort</span>
                 </label>
                 <div className="relative">
                   <input
+                    id="cook-password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
                     value={serverPass}
-                    onChange={(e) => setServerPass(e.target.value)}
+                    onChange={(e) => handlePassChange(e.target.value)}
                     placeholder="••••••••"
                     autoComplete="current-password"
                     className="w-full h-10 pl-3 pr-8 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
@@ -290,19 +338,27 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               </div>
             </div>
 
-            {(serverUser.trim() || serverPass) && (
-              <div className="pt-1 flex justify-end">
+            <div className="pt-1 flex items-center justify-between gap-2">
+              <button
+                type="submit"
+                className="px-3.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-900 dark:bg-stone-200 dark:hover:bg-white text-white dark:text-stone-900 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" />
+                <span>Zugangsdaten speichern</span>
+              </button>
+
+              {(serverUser.trim() || serverPass) && (
                 <button
                   type="button"
                   onClick={handleLogout}
                   className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-900 text-stone-700 dark:text-stone-300 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-stone-200 dark:border-stone-800"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  <span>Ausloggen / Zugangsdaten löschen</span>
+                  <span>Ausloggen / Löschen</span>
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          </form>
 
           {/* Theme Option */}
           <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center justify-between">

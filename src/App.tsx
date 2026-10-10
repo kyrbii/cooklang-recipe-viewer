@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Clock, Play, Pause, X } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from './types/cook';
 import { cookApi } from './services/cookApi';
@@ -72,6 +72,12 @@ const MelaApp: React.FC = () => {
     (recipeKeyFromHash(window.location.hash) !== null
       ? findRecipeByKey(recipes, recipeKeyFromHash(window.location.hash)!)
       : null);
+
+  // Ein Rezept beginnt immer oben, auch wenn die Liste vorher weiter unten gescrollt war
+  const shownRecipeKey = shownRecipe?.path ?? null;
+  useLayoutEffect(() => {
+    if (shownRecipeKey) window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [shownRecipeKey]);
 
   // Initialize theme and status listeners
   useEffect(() => {

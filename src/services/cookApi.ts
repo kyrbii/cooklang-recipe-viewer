@@ -74,9 +74,7 @@ class CookApiService {
       if (storedUser) {
         this.serverUser = storedUser.trim();
       }
-      // Passwort nur für die Sitzung. Alte Einträge aus localStorage werden entfernt.
-      localStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
-      const storedPass = sessionStorage.getItem(STORAGE_KEYS.SERVER_PASS);
+      const storedPass = localStorage.getItem(STORAGE_KEYS.SERVER_PASS);
       if (storedPass) {
         this.serverPass = storedPass;
       }
@@ -113,13 +111,19 @@ class CookApiService {
         localStorage.removeItem(STORAGE_KEYS.SERVER_USER);
       }
       if (this.serverPass) {
-        sessionStorage.setItem(STORAGE_KEYS.SERVER_PASS, this.serverPass);
+        localStorage.setItem(STORAGE_KEYS.SERVER_PASS, this.serverPass);
       } else {
-        sessionStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
+        localStorage.removeItem(STORAGE_KEYS.SERVER_PASS);
       }
     } catch {
       // Ignore
     }
+  }
+
+  /** Übernimmt Zugangsdaten für die laufende Sitzung, ohne sie zu speichern */
+  public useCredentials(user: string, pass: string): void {
+    this.serverUser = user.trim();
+    this.serverPass = pass;
   }
 
   public getCredentials(): { user: string; pass: string } {
@@ -693,7 +697,11 @@ class CookApiService {
     } catch {
       // plain text body
     }
-    if (res.status === 401) return 'Nicht autorisiert (401). Bitte Zugangsdaten in den Einstellungen prüfen.';
+    if (res.status === 401) {
+      return this.serverUser && !this.serverPass
+        ? 'Passwort fehlt. Bitte in den Einstellungen eingeben.'
+        : 'Nicht autorisiert (401). Bitte Zugangsdaten in den Einstellungen prüfen.';
+    }
     if (res.status === 403) return 'Zugriff verweigert (403). Der Cook Server erlaubt diese Anfrage nicht.';
     if (res.status === 404) return 'Rezeptdatei auf dem Server nicht gefunden (404).';
     return `Server-Fehler (HTTP ${res.status})${detail ? `: ${detail}` : ''}`;

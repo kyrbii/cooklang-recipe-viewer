@@ -46,6 +46,24 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     cookApi.setServerUrl(val);
   };
 
+  // Eingaben gelten sofort für Anfragen, gespeichert wird beim Verlassen des Feldes, beim Speichern und beim Schließen
+  const handleUserChange = (val: string) => {
+    setServerUser(val);
+    cookApi.useCredentials(val, serverPass);
+  };
+
+  const handlePassChange = (val: string) => {
+    setServerPass(val);
+    cookApi.useCredentials(serverUser, val);
+  };
+
+  const persistCredentials = () => cookApi.setCredentials(serverUser, serverPass);
+
+  const handleClose = () => {
+    persistCredentials();
+    onClose();
+  };
+
   const handleSaveCredentials = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     cookApi.setCredentials(serverUser, serverPass);
@@ -111,7 +129,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             </span>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-stone-200/70 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white"
           >
             <X className="w-4 h-4" />
@@ -224,7 +242,8 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                   name="username"
                   type="text"
                   value={serverUser}
-                  onChange={(e) => setServerUser(e.target.value)}
+                  onChange={(e) => handleUserChange(e.target.value)}
+                  onBlur={persistCredentials}
                   placeholder="Benutzername"
                   autoComplete="username"
                   className="w-full h-10 px-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
@@ -245,7 +264,8 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                     name="password"
                     type={showPassword ? 'text' : 'password'}
                     value={serverPass}
-                    onChange={(e) => setServerPass(e.target.value)}
+                    onChange={(e) => handlePassChange(e.target.value)}
+                    onBlur={persistCredentials}
                     placeholder="••••••••"
                     autoComplete="current-password"
                     className="w-full h-10 pl-3 pr-8 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
@@ -261,6 +281,12 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                 </div>
               </div>
             </div>
+
+            {serverUser.trim() && !serverPass && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                Passwort fehlt. Bitte eingeben und speichern.
+              </p>
+            )}
 
             <div className="pt-1 flex items-center justify-between gap-2">
               <button

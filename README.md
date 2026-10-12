@@ -40,7 +40,7 @@ Der Dienst läuft auf Port 8787 und wird über Nginx Proxy Manager unter `/ai/` 
 
 ## Zugangsdaten
 
-Die Basic-Auth-Zugangsdaten für den Reverse Proxy stehen in den Einstellungen. Der Benutzername wird lokal gespeichert, das Passwort nur für die aktuelle Sitzung. Die Anmeldung erfolgt über den `Authorization`-Header, der Browser-Login-Dialog erscheint nicht.
+Die Basic-Auth-Zugangsdaten für den Reverse Proxy stehen in den Einstellungen und bleiben im Browser (`localStorage`) gespeichert, bis du sie unter „Ausloggen / Löschen“ entfernst. Jeder Skript-Code auf derselben Seite könnte sie auslesen, für eine persönliche App ist das vertretbar. Die Anmeldung erfolgt über den `Authorization`-Header, der Browser-Login-Dialog erscheint nicht.
 
 ## Struktur
 

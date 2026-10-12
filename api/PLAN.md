@@ -15,12 +15,13 @@ Tested in the browser: list, login, edit and save, conflict dialog, forced overw
 |---|---|---|---|
 | POST | `/login` | none | `{username, password}` → `{token, username, expires_at}` |
 | POST | `/logout` | token | Revoke the current token, `204` |
+| DELETE | `/account` | token + password | Delete the account and its tokens, `204`. Recipes stay |
 | GET | `/recipes` | public | `{recipes: [{path, title, etag}]}`, sorted by path |
 | GET | `/recipe/{path}` | public | Raw `.cook` text, `ETag` header |
 | PUT | `/recipe/{path}` | token | Create or overwrite, raw text body, conflict check |
 | POST | `/import` | token | AI import: `{url}`, `{text}` or `{image, mimeType}` → `{cooklang}` |
 
-Users are created only by `scripts/create_user.py`. Images are out of scope for now.
+Users are created only by `scripts/create_user.py`, removed by `scripts/delete_user.py` (admin) or `DELETE /account` (self-service). Images are out of scope for now.
 
 Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` missing or invalid token, `404` unknown recipe,
 `412` conflict, `413` body too large, `422` no recipe found or Instagram, `502` page or Gemini unreachable, `428` overwrite without `If-Match`, `429` too many failed logins.

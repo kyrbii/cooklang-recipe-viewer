@@ -254,8 +254,6 @@ const MelaApp: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         status={status}
-        isSyncing={isSyncing}
-        onSync={handleSync}
       />
     </div>
   );

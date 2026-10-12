@@ -24,6 +24,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
 class LoginResponse(BaseModel):
     token: str
     username: str
@@ -64,7 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
-        allow_methods=["GET", "PUT", "POST"],
+        allow_methods=["GET", "PUT", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "If-Match"],
         expose_headers=["ETag"],
     )
@@ -113,6 +117,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/logout", status_code=204)
     def logout(credentials: Credentials, conn: Conn, _user: Annotated[str, Depends(require_user)]):
         auth.revoke_token(conn, credentials.credentials)
+        return Response(status_code=204)
+
+    @app.delete("/account", status_code=204)
+    def delete_account(
+        body: DeleteAccountRequest,
+        request: Request,
+        conn: Conn,
+        user: Annotated[str, Depends(require_user)],
+    ):
+        """Deletes the signed-in account. The password is asked again, so a stolen token alone is not enough."""
+        client = request.client.host if request.client else "unknown"
+        wait = throttle.retry_after(client, user)
+        if wait:
+            raise HTTPException(429, "too many failed attempts", headers={"Retry-After": str(wait)})
+        if not auth.verify_password(conn, user, body.password):
+            throttle.record_failure(client, user)
+            raise HTTPException(403, "password does not match")
+        throttle.reset(client, user)
+        auth.delete_user(conn, user)
         return Response(status_code=204)
 
     @app.get("/recipes", response_model=RecipeList)

@@ -195,6 +195,37 @@ class CookApiService {
   }
 
   /** Revokes the token on the server (best effort) and forgets it locally */
+  /**
+   * Deletes the signed-in account. The server asks for the password again.
+   * Recipes are shared and stay on the server.
+   */
+  public async deleteAccount(password: string): Promise<void> {
+    let res: Response;
+    try {
+      res = await this.fetchApi('account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+    } catch {
+      throw new Error('Server nicht erreichbar. Das Konto wurde nicht gelöscht.');
+    }
+    if (res.ok) {
+      this.clearSession();
+      return;
+    }
+    if (res.status === 401) {
+      this.clearSession();
+      throw new Error('Du bist nicht angemeldet.');
+    }
+    if (res.status === 403) throw new Error('Das Passwort stimmt nicht.');
+    if (res.status === 429) {
+      const wait = Math.ceil(Number(res.headers.get('Retry-After') || 60) / 60);
+      throw new Error(`Zu viele Fehlversuche. Bitte in ${wait} Minute(n) erneut versuchen.`);
+    }
+    throw new Error(await this.readErrorMessage(res));
+  }
+
   public async logout(): Promise<void> {
     if (this.token) {
       try {

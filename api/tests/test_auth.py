@@ -81,3 +81,38 @@ def test_set_password_validation(settings):
 
 def test_no_registration_endpoint(client):
     assert client.post("/register", json={"username": "a", "password": "b"}).status_code in (404, 405)
+
+
+def test_delete_account_requires_password(client, auth_headers):
+    res = client.request("DELETE", "/account", json={"password": "wrong-password"}, headers=auth_headers)
+    assert res.status_code == 403
+    # The account still works after a failed attempt
+    assert client.post("/import", json={"text": "x"}, headers=auth_headers).status_code != 401
+
+
+def test_delete_account_removes_user_tokens_and_login(client, settings, auth_headers):
+    res = client.request("DELETE", "/account", json={"password": PASSWORD}, headers=auth_headers)
+    assert res.status_code == 204
+    assert client.post("/login", json={"username": USERNAME, "password": PASSWORD}).status_code == 401
+    assert client.post("/import", json={"text": "x"}, headers=auth_headers).status_code == 401
+    conn = db.connect(settings.db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tokens").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    conn.close()
+
+
+def test_delete_account_keeps_recipes(client, auth_headers, settings):
+    client.put("/recipe/Brot", content=b"Bake.", headers=auth_headers)
+    client.request("DELETE", "/account", json={"password": PASSWORD}, headers=auth_headers)
+    assert client.get("/recipe/Brot").content == b"Bake."
+
+
+def test_delete_account_is_throttled(client, auth_headers):
+    for _ in range(5):
+        assert client.request("DELETE", "/account", json={"password": "nope-nope"}, headers=auth_headers).status_code == 403
+    res = client.request("DELETE", "/account", json={"password": PASSWORD}, headers=auth_headers)
+    assert res.status_code == 429
+
+
+def test_delete_account_needs_login(client):
+    assert client.request("DELETE", "/account", json={"password": PASSWORD}).status_code == 401

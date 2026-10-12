@@ -94,6 +94,13 @@ def user_for_token(conn: sqlite3.Connection, token: str) -> str | None:
     return row["username"] if row else None
 
 
+def delete_user(conn: sqlite3.Connection, username: str) -> bool:
+    """Deletes the user and, through the foreign key, all their tokens. Recipes are not user data and stay."""
+    with conn:
+        cursor = conn.execute("DELETE FROM users WHERE username = ?", (normalize_username(username),))
+    return cursor.rowcount > 0
+
+
 def revoke_token(conn: sqlite3.Connection, token: str) -> None:
     with conn:
         conn.execute("DELETE FROM tokens WHERE token_hash = ?", (_token_hash(token),))

@@ -387,6 +387,9 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               <p className="text-[11px] text-stone-400 dark:text-stone-500">
                 Das Ergebnis erscheint im Reiter „Cooklang Text“, dort kannst du es vor dem Speichern prüfen.
               </p>
+              <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                Zur Umwandlung wird der Inhalt an Google (Gemini) gesendet. Mehr dazu unter Einstellungen → Datenschutz.
+              </p>
             </div>
           )}
 

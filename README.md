@@ -48,8 +48,9 @@ Der Ordner [`api/`](api/) enthält die API (Python, FastAPI, uv). Details und En
 | `PUT` | `/recipe/{pfad}` | ja, mit `If-Match` beim Überschreiben |
 | `POST` | `/import` | ja (KI-Import) |
 | `POST` | `/login`, `/logout` | – |
+| `DELETE` | `/account` | ja, mit Passwort |
 
-Konten legt nur das Skript `api/scripts/create_user.py` an, eine Registrierung gibt es nicht.
+Konten legt nur das Skript `api/scripts/create_user.py` an, eine Registrierung gibt es nicht. Löschen geht über die App (Einstellungen → Konto) oder mit `api/scripts/delete_user.py`. Die Datenschutzerklärung steht in der App unter Einstellungen → Datenschutz.
 
 ## KI-Import
 

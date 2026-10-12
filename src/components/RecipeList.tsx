@@ -322,12 +322,6 @@ export const RecipeList: React.FC<RecipeListProps> = ({
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   <span>Jetzt synchronisieren</span>
                 </button>
-                <button
-                  onClick={onOpenSettings}
-                  className="px-4 py-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-medium hover:bg-stone-300 cursor-pointer"
-                >
-                  Server Einstellungen
-                </button>
               </div>
             )}
           </div>

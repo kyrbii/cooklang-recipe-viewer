@@ -1,5 +1,6 @@
 import type { ConnectionStatus, Recipe, RecipeDraft, UpdateRecipeResult } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
+import { API_URL } from '../config';
 
 /**
  * Client for the Rezepte API (api/ in this repository):
@@ -11,7 +12,6 @@ import { normalizeServerRecipe } from '../utils/cooklangParser';
  */
 
 const STORAGE_KEYS = {
-  API_URL: 'cook_api_url',
   TOKEN: 'cook_api_token',
   TOKEN_USER: 'cook_api_user',
   TOKEN_EXPIRES: 'cook_api_token_expires',
@@ -25,7 +25,7 @@ const STORAGE_KEYS = {
 };
 
 /** Keys from the CookCLI version. Removed on start, so the old Basic Auth password does not stay in the browser. */
-const LEGACY_KEYS = ['cook_server_url', 'cook_server_user', 'cook_server_pass', 'cook_recipes_cache_v5'];
+const LEGACY_KEYS = ['cook_server_url', 'cook_server_user', 'cook_server_pass', 'cook_recipes_cache_v5', 'cook_api_url'];
 const LEGACY_DETAIL_PREFIX = 'cook_recipe_detail_v5_';
 
 const normalizeEol = (s: string) => s.replace(/\r\n?/g, '\n');
@@ -45,11 +45,7 @@ const encodeRecipePath = (recipePath: string) =>
     .map((segment) => encodeURIComponent(segment))
     .join('/');
 
-/** Local API server for testing. Change in the settings for another server. */
-export const DEFAULT_SERVER_URL = 'http://localhost:8000';
-
 export interface CookApiSettings {
-  serverUrl: string;
   wakeLockEnabled: boolean;
   theme: 'dark' | 'light';
 }
@@ -73,12 +69,12 @@ interface ListEntry {
 }
 
 class CookApiService {
-  private serverUrl: string = DEFAULT_SERVER_URL;
   private token: string = '';
   private tokenUser: string = '';
   private tokenExpires: number = 0;
   private connectionStatus: ConnectionStatus = 'disconnected';
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
+  private sessionListeners: Set<() => void> = new Set();
   /** Last server text and ETag seen per recipe path, so saves can send If-Match */
   private serverVersions = new Map<string, { text: string; etag: string }>();
 
@@ -108,10 +104,7 @@ class CookApiService {
   }
 
   public loadSettings(): CookApiSettings {
-    let url = DEFAULT_SERVER_URL;
     try {
-      const storedUrl = localStorage.getItem(STORAGE_KEYS.API_URL);
-      if (storedUrl) url = storedUrl.trim();
       this.token = localStorage.getItem(STORAGE_KEYS.TOKEN) || '';
       this.tokenUser = localStorage.getItem(STORAGE_KEYS.TOKEN_USER) || '';
       this.tokenExpires = Number(localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRES) || 0);
@@ -121,8 +114,7 @@ class CookApiService {
     if (this.token && this.tokenExpires * 1000 <= Date.now()) {
       this.clearSession();
     }
-    this.serverUrl = url;
-    return { serverUrl: url, wakeLockEnabled: this.getWakeLockEnabled(), theme: this.getTheme() };
+    return { wakeLockEnabled: this.getWakeLockEnabled(), theme: this.getTheme() };
   }
 
   // ---- Login ----
@@ -133,6 +125,18 @@ class CookApiService {
 
   public getUsername(): string {
     return this.tokenUser;
+  }
+
+  /** Calls `callback` whenever the login state changes. Returns the unsubscribe function. */
+  public subscribeSession(callback: () => void): () => void {
+    this.sessionListeners.add(callback);
+    return () => {
+      this.sessionListeners.delete(callback);
+    };
+  }
+
+  private notifySession(): void {
+    this.sessionListeners.forEach((fn) => fn());
   }
 
   private storeSession(token: string, username: string, expiresAt: number): void {
@@ -146,9 +150,11 @@ class CookApiService {
     } catch {
       // Ignore: the session then lasts until the page is reloaded
     }
+    this.notifySession();
   }
 
   private clearSession(): void {
+    const wasLoggedIn = this.token !== '';
     this.token = '';
     this.tokenUser = '';
     this.tokenExpires = 0;
@@ -159,6 +165,7 @@ class CookApiService {
     } catch {
       // Ignore
     }
+    if (wasLoggedIn) this.notifySession();
   }
 
   /** Signs in and stores the token. Throws with a readable message on failure. */
@@ -204,26 +211,6 @@ class CookApiService {
   }
 
   // ---- Settings ----
-
-  public setServerUrl(url: string): void {
-    const cleanUrl = url.trim().replace(/\/+$/, '');
-    const next = cleanUrl || DEFAULT_SERVER_URL;
-    if (next !== this.serverUrl) {
-      // A token belongs to one server
-      this.clearSession();
-      this.serverVersions.clear();
-    }
-    this.serverUrl = next;
-    try {
-      localStorage.setItem(STORAGE_KEYS.API_URL, this.serverUrl);
-    } catch {
-      // Ignore
-    }
-  }
-
-  public getServerUrl(): string {
-    return this.serverUrl;
-  }
 
   public setWakeLockEnabled(enabled: boolean): void {
     try {
@@ -329,7 +316,7 @@ class CookApiService {
 
   private async fetchApi(path: string, options: RequestInit = {}, timeoutMs = 4000): Promise<Response> {
     const cleanPath = path.replace(/^\/+/, '');
-    const cleanBase = this.serverUrl.replace(/\/+$/, '');
+    const cleanBase = API_URL.replace(/\/+$/, '');
 
     // Reads are public: sending the token only on writes avoids a CORS preflight for every GET
     const method = (options.method || 'GET').toUpperCase();
@@ -786,7 +773,7 @@ class CookApiService {
 
     if (/^https?:\/\//i.test(src)) {
       try {
-        if (new URL(src).origin !== new URL(this.serverUrl).origin) return src;
+        if (new URL(src).origin !== new URL(API_URL).origin) return src;
       } catch {
         return src;
       }
@@ -794,7 +781,7 @@ class CookApiService {
 
     let fullUrl = src;
     if (!src.startsWith('http://') && !src.startsWith('https://')) {
-      const base = this.serverUrl.replace(/\/+$/, '');
+      const base = API_URL.replace(/\/+$/, '');
       fullUrl = `${base}/${src.replace(/^\/+/, '')}`;
     }
 

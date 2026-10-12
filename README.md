@@ -53,7 +53,7 @@ Konten legt nur das Skript `api/scripts/create_user.py` an, eine Registrierung g
 
 ## KI-Import
 
-`POST /import` in der API wandelt eine Webseite, einen Text oder ein Foto mit Gemini in Cooklang um. Bei Webseiten werden strukturierte Rezeptdaten (JSON-LD) bevorzugt und das Titelbild ins Frontmatter übernommen. Der Server ruft nur öffentliche Adressen ab, auch nach Weiterleitungen. Der Import braucht eine Anmeldung, weil jeder Aufruf Gemini-Kontingent kostet.
+`POST /import` in der API wandelt eine Webseite, einen Text oder ein Foto mit Gemini in Cooklang um. Bei Webseiten werden strukturierte Rezeptdaten (JSON-LD) bevorzugt und das Titelbild als `>> image:`-Zeile übernommen. Der Server ruft nur öffentliche Adressen ab, auch nach Weiterleitungen. Der Import braucht eine Anmeldung, weil jeder Aufruf Gemini-Kontingent kostet.
 
 Konfiguration in `api/.env`:
 

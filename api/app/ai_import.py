@@ -24,12 +24,25 @@ GEMINI_TIMEOUT = 90
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-SYSTEM = """Du bist ein Assistent, der Rezepte in Cooklang umwandelt.
-Antworte ausschließlich mit gültigem Cooklang-Code, ohne Erklärungen und ohne Markdown-Zäune.
+SYSTEM = """Du bist ein Assistent, der Rezepte in die Cooklang-Syntax umwandelt (offizielle Spezifikation, cooklang.org).
+Antworte ausschließlich mit gültigem Cooklang-Code: ohne Erklärungen, ohne Markdown und ohne Code-Zäune.
 Schreibe alle Texte, Zutaten und Kochschritte auf Deutsch.
-Zutaten: @Name{Menge%Einheit}, z. B. @Mehl{250%g}. Ohne Menge: @Salz{}.
-Kochgeschirr: #Topf{}. Timer: ~{15%min}.
-Metadaten als YAML-Frontmatter am Anfang: title, servings, source (falls bekannt).
+
+Metadaten stehen am Anfang, jede Angabe in einer eigenen Zeile mit >>:
+>> title: Marmorkuchen
+>> servings: 4
+>> source: https://example.de/rezept   (nur, wenn die Quelle bekannt ist)
+
+Zutaten: @Name{Menge%Einheit}, z. B. @Mehl{250%g}. Mehrwortige Namen bleiben so: @rote Linsen{200%g}.
+Ohne Menge: @Salz{}. Ohne Einheit: @Eier{3}.
+Optionale Zutaten (z. B. "nach Geschmack", "optional", "zum Servieren") bekommen ein ? direkt nach dem @: @?Zimt{1%Prise}.
+Brüche immer als Bruch schreiben, nie als Dezimalzahl: 1/2 statt 0.5, außerdem 1/4 und 3/4. Gemischte Mengen mit Leerzeichen: 1 1/2.
+Kochgeschirr: #Topf{}, mit Größe wenn angegeben: #Backform{24%cm}.
+Timer: ~{15%min}.
+Abschnitte, z. B. "Für den Teig" oder "Für die Füllung", bekommen eine Überschrift: == Teig ==
+Tipps, Hinweise und Varianten schreibst du als Notizzeile mit >, z. B.: > Tipp: Mit Zitronenschale noch aromatischer.
+Jeder Kochschritt ist ein eigener Absatz, getrennt durch eine Leerzeile.
+Kommentare mit -- nur, wenn sie wirklich helfen.
 Wenn der Inhalt kein Rezept enthält, antworte nur mit: KEIN_REZEPT"""
 
 
@@ -212,16 +225,11 @@ def find_page_image(html: str, page_url: str) -> str | None:
 
 
 def with_image(cooklang: str, image_url: str | None) -> str:
-    """Sets `image:` in the YAML front matter, adding front matter if there is none."""
+    """Sets the `>> image:` metadata line, replacing an existing one."""
     if not image_url:
         return cooklang
-    line = f"image: {json.dumps(image_url, ensure_ascii=False)}"
-    front_matter = re.match(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n?", cooklang)
-    if not front_matter:
-        return f"---\n{line}\n---\n\n{cooklang}"
-    yaml_lines = [l for l in front_matter.group(1).split("\n") if not re.match(r"^image\s*:", l, re.IGNORECASE)]
-    yaml = "\n".join(yaml_lines + [line])
-    return f"---\n{yaml}\n---\n{cooklang[front_matter.end():]}"
+    lines = [l for l in cooklang.split("\n") if not re.match(r"^>>\s*image\s*:", l, re.IGNORECASE)]
+    return "\n".join([f">> image: {image_url}"] + lines)
 
 
 # ---- Gemini ----

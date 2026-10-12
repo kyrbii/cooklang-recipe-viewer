@@ -187,12 +187,16 @@ def test_no_image():
 
 
 def test_with_image_replaces_existing_line():
-    result = ai_import.with_image("---\ntitle: A\nimage: old.jpg\n---\nStep.", "https://x.test/ä.jpg")
-    assert result == '---\ntitle: A\nimage: "https://x.test/ä.jpg"\n---\nStep.'
+    result = ai_import.with_image(">> title: A\n>> image: old.jpg\n\nStep.", "https://x.test/ä.jpg")
+    assert result == ">> image: https://x.test/ä.jpg\n>> title: A\n\nStep."
 
 
-def test_with_image_adds_front_matter():
-    assert ai_import.with_image("Step.", "https://x.test/a.jpg") == '---\nimage: "https://x.test/a.jpg"\n---\n\nStep.'
+def test_with_image_prepends_metadata_line():
+    assert ai_import.with_image("Step.", "https://x.test/a.jpg") == ">> image: https://x.test/a.jpg\nStep."
+
+
+def test_with_image_none_leaves_text_unchanged():
+    assert ai_import.with_image("Step.", None) == "Step."
 
 
 # ---- Gemini ----
@@ -272,7 +276,7 @@ def test_import_url_adds_page_image(client, auth_headers, gemini_calls, monkeypa
     monkeypatch.setattr(ai_import, "_open", lambda request, timeout: FakeResponse(PAGE.encode()))
     res = client.post("/import", json={"url": "https://example.com/rezept/1"}, headers=auth_headers)
     assert res.status_code == 200
-    assert 'image: "https://example.com/img/kuchen.jpg"' in res.json()["cooklang"]
+    assert ">> image: https://example.com/img/kuchen.jpg" in res.json()["cooklang"]
     assert "Seitentext:" in gemini_calls[0][0]["text"]
 
 

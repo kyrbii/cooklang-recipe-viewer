@@ -44,8 +44,9 @@ Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` miss
 
 Ported from the former `ai-import/server.mjs` (Node). Same prompt, limits, timeouts and German messages.
 
+- Output follows the official Cooklang syntax: `>>` metadata lines, `@?` for optional ingredients, `== Section ==`, `> ` for tips and notes, fractions such as `1/2` instead of `0.5`. The prompt lives in `app/ai_import.py` (`SYSTEM`).
 - Input: `{url}` (web page), `{text}` (max 50 000 characters) or `{image, mimeType}` (base64, JPG/PNG/WebP/HEIC). Body max `MAX_IMPORT_BYTES` (12 MB).
-- Web pages: JSON-LD, meta tags and page text go to Gemini. The title image (schema.org `Recipe.image`, then `og:image`/`twitter:image`) is written into the front matter as `image:`.
+- Web pages: JSON-LD, meta tags and page text go to Gemini. The title image (schema.org `Recipe.image`, then `og:image`/`twitter:image`) is written as a `>> image:` metadata line.
 - SSRF protection: only http/https, no credentials in the URL, every resolved address must be public (`ipaddress.is_global`, IPv4-mapped IPv6 unwrapped). Redirects are followed by hand (max 4), each target is checked again. Instagram is refused with a hint (422).
 - Needs a login token: every call uses Gemini quota.
 - Config: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). The key is never logged.
@@ -107,6 +108,6 @@ run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy address>`.
 
 1. ~~Client switch~~ done: new paths, bearer token, `If-Match` from remembered ETags, `412` → existing conflict dialog. Sync downloads only recipes whose ETag changed.
 2. ~~Settings login form~~ done.
-3. **Images**, when wanted: `GET /files/{path}`, same path rules. Images from external URLs in the front matter already work.
+3. **Images**, when wanted: `GET /files/{path}`, same path rules. Images from external URLs in the recipe metadata already work.
 4. **Deployment:** systemd unit or Docker service, `.env` on the server, backup of `RECIPE_DIR` and `DB_PATH`, migrate the existing recipe folder from CookCLI, set `DEFAULT_SERVER_URL` in the app (or `VITE_` variable) to the public URL.
 5. ~~AI import~~ moved into this API as `POST /import`. The separate `ai-import/` service is removed on this branch (still on `main` and the `cookcli-final` tag).

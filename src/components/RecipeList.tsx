@@ -14,6 +14,7 @@ import {
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import { useLoginUser } from '../hooks/useLoginUser';
 
 interface RecipeListProps {
   recipes: Recipe[];
@@ -36,6 +37,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   onOpenSettings,
   onAddRecipe
 }) => {
+  const loginUser = useLoginUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Alle');
   const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
@@ -153,6 +155,23 @@ export const RecipeList: React.FC<RecipeListProps> = ({
                 {status === 'connected' ? 'Online' : status === 'checking' ? 'Verbinde...' : 'Offline'}
               </span>
             </span>
+            <span className="text-stone-300 dark:text-stone-700">•</span>
+            {loginUser ? (
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400" title="Du bist angemeldet und kannst Rezepte speichern">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>Angemeldet als {loginUser}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="inline-flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300"
+                title="Zum Speichern und KI-Import anmelden"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-stone-600" />
+                <span>Nicht angemeldet</span>
+              </button>
+            )}
           </p>
         </div>
 

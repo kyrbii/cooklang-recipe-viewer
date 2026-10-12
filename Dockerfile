@@ -1,19 +1,18 @@
 # The app: built with Node, served as static files by nginx.
-# The API URL is baked into the build, so pass the public one:
-#   docker build --build-arg VITE_API_URL=https://api.example.com .
+# The image is the same for every server: the API URL comes from the API_URL environment
+# variable when the container starts (docker/40-stir-config.sh writes it into config.js).
 
-FROM node:24-alpine AS build
+# The build output is plain HTML/JS, so it is built once on the build machine's platform
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-ARG VITE_API_URL
-RUN test -n "$VITE_API_URL" || (echo "VITE_API_URL build argument is required" && exit 1)
-ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 FROM nginx:1.29-alpine
-# Filled in at container start from the API_ORIGIN environment variable (for the CSP)
+# Filled in at container start from API_URL (for the CSP)
 COPY docker/default.conf.template /etc/nginx/templates/default.conf.template
+COPY --chmod=755 docker/40-stir-config.sh /docker-entrypoint.d/40-stir-config.sh
 COPY --from=build /src/dist /usr/share/nginx/html
 EXPOSE 80

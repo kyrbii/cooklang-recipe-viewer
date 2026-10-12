@@ -1,4 +1,4 @@
-# nginx template: the nginx image replaces ${API_ORIGIN} with the environment variable at startup.
+# nginx template: the nginx image replaces ${API_URL} with the environment variable at startup.
 
 server {
     listen 80;
@@ -9,7 +9,7 @@ server {
     # Security headers. Only set here: an add_header inside a location would drop all of these,
     # so the locations below control caching with "expires" instead.
     # Images: any https source, because imported recipes link photos from other sites (>> image:).
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: ${API_ORIGIN}; connect-src 'self' ${API_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: ${API_URL}; connect-src 'self' ${API_URL}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()" always;
@@ -22,8 +22,8 @@ server {
         try_files $uri =404;
     }
 
-    # Service worker, manifest and index must be revalidated, or the PWA never sees updates
-    location ~ ^/(sw\.js|workbox-.*\.js|registerSW\.js|manifest\.webmanifest|index\.html)$ {
+    # Service worker, manifest, index and config must be revalidated, or the PWA never sees updates
+    location ~ ^/(sw\.js|workbox-.*\.js|registerSW\.js|config\.js|manifest\.webmanifest|index\.html)$ {
         expires -1;
         try_files $uri =404;
     }

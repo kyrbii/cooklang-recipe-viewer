@@ -1,5 +1,10 @@
-# App + API for a server behind Nginx Proxy Manager. Settings come from .env next to this file
-# (copy deploy.env.example to .env). Start with: docker compose up -d --build
+# stir on a server: prebuilt images from GitHub, settings from .env next to this file
+# (copy deploy.env.example to .env). These two files are all the server needs.
+#
+#   docker compose up -d                       start
+#   docker compose pull && docker compose up -d update
+#
+# To build the images from source instead: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 # Docker keeps container logs forever by default; cap them at 3 x 10 MB per container
 x-logging: &logging
@@ -10,13 +15,13 @@ x-logging: &logging
 
 services:
   api:
-    build: ./api
+    image: ghcr.io/kyrbii/stir-api:${STIR_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
       # Recipes, photos and the user database. Must be writable by uid 1000.
-      - ${DATA_DIR:-./api/data}:/data
+      - ${DATA_DIR:-./data}:/data
       # Target of scripts/backup.py. Must be writable by uid 1000.
       - ${BACKUP_DIR:-./backups}:/backups
     environment:
@@ -34,16 +39,13 @@ services:
     logging: *logging
 
   web:
-    build:
-      context: .
-      args:
-        VITE_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in .env}
+    image: ghcr.io/kyrbii/stir-web:${STIR_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8080}:80"
     environment:
-      # Allowed in the Content-Security-Policy, see docker/default.conf.template
-      API_ORIGIN: ${PUBLIC_API_URL}
+      # Read when the container starts: written into config.js and allowed in the CSP
+      API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in .env}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s

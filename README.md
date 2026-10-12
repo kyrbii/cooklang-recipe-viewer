@@ -75,22 +75,27 @@ Die Anmeldung in den Einstellungen liefert einen Token, der im Browser (`localSt
 
 ## Deployment (Docker)
 
-App und API laufen als zwei Container (`docker-compose.yml`), davor z. B. Nginx Proxy Manager mit je einem Proxy Host:
+GitHub Actions testet bei jedem Push App und API und baut daraus zwei Images (amd64 + arm64): `ghcr.io/kyrbii/stir-web` und `ghcr.io/kyrbii/stir-api`. Tags: `latest` (Branch `main`), der Branch-Name für andere Branches (z. B. `feat-clean-room-api`), `1.2.3` für einen Git-Tag `v1.2.3`.
+
+Auf dem Server reichen `docker-compose.yml` und eine `.env`, davor z. B. Nginx Proxy Manager mit je einem Proxy Host:
 
 ```bash
-cp deploy.env.example .env   # öffentliche URLs, Ports, Datenordner, Gemini-Key eintragen
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/kyrbii/cooklang-recipe-viewer/main/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/kyrbii/cooklang-recipe-viewer/main/deploy.env.example
+# .env ausfüllen: öffentliche URLs, Ports, Image-Version, Gemini-Key
+docker compose up -d
 docker compose exec api python scripts/create_user.py <name>
 ```
 
-- Die API-URL wird beim Bauen in die App eingebaut (`PUBLIC_API_URL`). Ändert sie sich, die App neu bauen.
+- Die API-URL wird erst beim Start des App-Containers gesetzt (`PUBLIC_API_URL` → `config.js` und CSP). Ein Image passt so für jeden Server.
 - `PUBLIC_APP_URL` wird automatisch als erlaubter CORS-Origin der API gesetzt.
 - Rezepte, Fotos und `api.db` liegen im `DATA_DIR` auf dem Host (Besitzer uid 1000). Diesen Ordner sichern.
 - Die API vertraut `X-Forwarded-For` (für die Login-Sperre). Den API-Port daher nur für den Proxy erreichbar machen.
 - Beide Container haben einen Healthcheck (`docker compose ps` zeigt `healthy`), Logs sind auf 3 × 10 MB begrenzt.
-- Die App sendet Sicherheits-Header (CSP u. a., siehe `docker/default.conf.template`). Die API-URL wird darin automatisch erlaubt.
+- Die App sendet Sicherheits-Header (CSP u. a., siehe `docker/default.conf.template`).
 - Suchmaschinen: `robots.txt` und `noindex` auf App und API, die Rezepte sind öffentlich lesbar, aber nicht auffindbar.
-- Update: `git pull && docker compose up -d --build`.
+- Update: `docker compose pull && docker compose up -d`.
+- Selbst bauen statt ziehen: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 ### Backup
 

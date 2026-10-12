@@ -1,152 +1,112 @@
-# Clean-room recipe API: plan
+# Clean-room recipe API
 
 A small, independent API that stores `.cook` files and serves them to the Rezepte app.
 No compatibility with the CookCLI paths (`api/recipes/...`), no spaces, no registration endpoint.
 
-## Scope
+## Status
+
+Backend implemented and tested (113 tests, plus a curl smoke test against the running server).
+The app on this branch talks to the new API, by default at `http://localhost:8000` for local testing.
+Tested in the browser: list, login, edit and save, conflict dialog, forced overwrite, new recipe, duplicate name refused.
+
+## Endpoints
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/login` | none | Exchange username and password for a token |
-| POST | `/logout` | token | Revoke the current token |
-| GET | `/recipes` | public | List all recipes: path, title, ETag |
-| GET | `/recipe/{path}` | public | Return raw `.cook` text and its `ETag` |
-| PUT | `/recipe/{path}` | token | Create or overwrite a recipe, with conflict check (see below) |
+| POST | `/login` | none | `{username, password}` → `{token, username, expires_at}` |
+| POST | `/logout` | token | Revoke the current token, `204` |
+| GET | `/recipes` | public | `{recipes: [{path, title, etag}]}`, sorted by path |
+| GET | `/recipe/{path}` | public | Raw `.cook` text, `ETag` header |
+| PUT | `/recipe/{path}` | token | Create or overwrite, raw text body, conflict check |
+| POST | `/import` | token | AI import: `{url}`, `{text}` or `{image, mimeType}` → `{cooklang}` |
 
-Users are created only by a local script: `scripts/create_user.py`.
-Images are out of scope for now.
+Users are created only by `scripts/create_user.py`. Images are out of scope for now.
+
+Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` missing or invalid token, `404` unknown recipe,
+`412` conflict, `413` body too large, `422` no recipe found or Instagram, `502` page or Gemini unreachable, `428` overwrite without `If-Match`, `429` too many failed logins.
 
 ## Decisions
 
-1. **Python + FastAPI + uvicorn.** The registration script is Python, so both share one language and one user store.
-2. **uv** as project and package manager: `pyproject.toml` and `uv.lock`, no `requirements.txt`. `.python-version` pins the interpreter.
-3. **SQLite** (stdlib `sqlite3`) for users and tokens. One file, no server to run.
-4. **Passwords:** `hashlib.scrypt` from the standard library. No extra dependency.
-5. **Auth: bearer token.** `/login` returns a random 32-byte token, stored hashed in the `tokens` table with an expiry (default 30 days). The client sends `Authorization: Bearer <token>`. Tokens are used instead of cookies because the app may be on a different origin than the API.
-6. **Reads are public.** `GET /recipes` and `GET /recipe/{path}` need no token. Only `PUT` and `POST /logout` require one.
-7. **Paths** match the CookCLI convention: no `.cook` suffix in the URL. The server appends it.
-8. **Storage:** `RECIPE_DIR` holds the `.cook` files as plain files. The directory tree mirrors the recipe paths.
-9. **Writes are atomic:** temp file in the same directory, then `os.replace`.
-10. **Path safety:** reject empty segments, `.`/`..`, leading dots, and anything that resolves outside `RECIPE_DIR`. Refuse symlinks.
-11. **Recipe content is not parsed on the server**, with one exception: the title for the list (see below). The client parses everything else.
-12. **Single worker.** Run uvicorn with one worker so the per-path write lock actually covers all writes.
+1. **Python + FastAPI + uvicorn**, managed with **uv** (`pyproject.toml`, `uv.lock`, `.python-version` = 3.13).
+2. **SQLite** for users and tokens, one connection per request (safe with FastAPI's thread pool).
+3. **Passwords:** `hashlib.scrypt` (n=2^14, r=8, p=1), random 16-byte salt per user. Usernames are lowercase.
+4. **Auth: bearer token.** 32 random bytes, stored as SHA-256, expiry `TOKEN_TTL_DAYS` (default 30). Resetting a password revokes all of that user's tokens.
+5. **Login hardening:** unknown users and wrong passwords take the same time and return the same error. After 5 failures per client and username within 15 minutes, `429` with `Retry-After`.
+6. **Reads are public.** Only `PUT` and `POST /logout` need a token.
+7. **CORS:** origins from `ALLOWED_ORIGINS`. `ETag` is exposed, otherwise browser code could not read it. `Authorization`, `Content-Type` and `If-Match` are allowed request headers. No origin is allowed by default.
+8. **Paths:** no `.cook` suffix in URLs (a trailing `.cook` is stripped). Rejected: empty segments, `.`/`..`, leading dots, backslashes, control characters, whitespace around a segment, anything over 512 characters, symlinks, and anything resolving outside `RECIPE_DIR`.
+9. **Writes are atomic:** hidden temp file in the same folder, `fsync`, then `os.replace`.
+10. **Body limits:** `MAX_RECIPE_BYTES` (default 1 MB), must be valid UTF-8. Bytes are stored exactly as sent.
+11. **No parsing on the server** except the title for the list.
+12. **Single worker.** One global `asyncio.Lock` covers "check ETag, write". This is correct only with one worker process.
+
+## AI import
+
+Ported from the former `ai-import/server.mjs` (Node). Same prompt, limits, timeouts and German messages.
+
+- Input: `{url}` (web page), `{text}` (max 50 000 characters) or `{image, mimeType}` (base64, JPG/PNG/WebP/HEIC). Body max `MAX_IMPORT_BYTES` (12 MB).
+- Web pages: JSON-LD, meta tags and page text go to Gemini. The title image (schema.org `Recipe.image`, then `og:image`/`twitter:image`) is written into the front matter as `image:`.
+- SSRF protection: only http/https, no credentials in the URL, every resolved address must be public (`ipaddress.is_global`, IPv4-mapped IPv6 unwrapped). Redirects are followed by hand (max 4), each target is checked again. Instagram is refused with a hint (422).
+- Needs a login token: every call uses Gemini quota.
+- Config: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). The key is never logged.
+- Known limit (same as the Node version): DNS is resolved for the check and again by the HTTP client, so a DNS rebinding attack between the two lookups is not prevented.
 
 ## Titles in the list
 
-- The title is the value of the `>> title:` metadata line in the recipe, if present.
-- Fallback: the file name without `.cook`, as the client does today.
-- Extraction is a small, line-based function: scan the leading `>>` lines for `title:`, trim the value. It does not parse steps, ingredients or cookware.
-- Cleaning, applied to the extracted value before it goes into the list:
-  - Strip control characters, including newlines and tabs. A title is one line.
-  - Collapse runs of whitespace to a single space and trim the ends.
-  - Cap at 200 characters.
-  - If nothing is left after cleaning, use the file name fallback.
-- These checks are for display quality. The security of titles comes from the client rendering them as text (React escapes by default; never use `dangerouslySetInnerHTML` or `innerHTML` for titles).
-- Titles are computed when the list is requested. For a personal library this is fast. If it gets slow, cache by file mtime and size.
+- Same order as the app's parser (`src/utils/cooklangParser.ts`): YAML front matter `title:` first, then legacy `>> title:` lines, a later line wins. Quotes are stripped, `--` comments are ignored.
+- Fallback: the file name without `.cook`.
+- Cleaning: control characters and line separators removed, whitespace collapsed, max 200 characters, fallback if empty.
+- Titles are returned as plain text. The client must render them as text (React does by default; never `dangerouslySetInnerHTML`).
+- Computed per list request. If the library grows large, cache by mtime and size.
 
 ## Conflict check
 
-Optimistic concurrency with a content hash as the version. The server stores the bytes exactly as sent, so no line-ending normalization is needed.
-
-**Version:** `ETag` = quoted SHA-256 of the file's bytes, e.g. `"9f2a…"`.
-
-**Reads**
-- `GET /recipe/{path}` returns the text and `ETag: "<hash>"`.
-- `GET /recipes` returns each entry with its `etag` field, so the list can tell whether a recipe changed.
-
-**Writes**
-- `PUT /recipe/{path}` with `If-Match: "<hash>"`: saved only if the file's current hash matches.
-- New file (no file exists yet): no `If-Match` needed.
-- Existing file without `If-Match`: rejected with `428 Precondition Required`. Overwriting blindly is not possible, which protects against the lost-update case.
-- `If-Match` mismatch: `412 Precondition Failed`. The response carries the current text as body and the current `ETag` as header, so the client can show its existing conflict dialog with the server version.
-- Success: `200` (or `201` for a new file) with the new `ETag`.
-
-**Atomicity**
-- A per-path `threading.Lock` wraps "read current hash, compare, write". With one worker process, two saves cannot interleave.
-
-**Sketch**
-
-```python
-@app.put("/recipe/{path:path}")
-async def put_recipe(path: str, request: Request, user=Depends(require_token)):
-    file = storage.resolve(path)
-    body = await request.body()
-    with storage.lock_for(file):
-        current = storage.read_bytes(file)            # None if new
-        if current is not None:
-            if_match = request.headers.get("if-match")
-            if if_match is None:
-                raise HTTPException(428, "If-Match required to overwrite")
-            if if_match != etag(current):
-                return Response(current, status_code=412, headers={"ETag": etag(current)})
-        storage.write_atomic(file, body)
-    return Response(status_code=200 if current is not None else 201,
-                    headers={"ETag": etag(body)})
-
-def etag(data: bytes) -> str:
-    return '"' + hashlib.sha256(data).hexdigest() + '"'
-```
-
-**Client flow (later)**
-- Keep the `ETag` from the last GET or PUT with the recipe.
-- On save: send `If-Match` with that value.
-- On `412`: show the existing conflict dialog, using the response body as the server version. Saving again means using the new `ETag` from that response.
-- On `428`: treat as a bug in the client, since it always has the ETag.
+- `ETag` = quoted SHA-256 of the stored bytes. `GET /recipe` sends it as a header, `GET /recipes` per entry.
+- `PUT` on an existing file needs `If-Match`, otherwise `428`.
+- `If-Match` mismatch → `412`, body is the current server text, `ETag` header is its version. Retrying with that `ETag` succeeds.
+- `If-Match` for a recipe that no longer exists → `412` with an empty body.
+- New file without `If-Match` → `201`. Successful overwrite → `200`. Both return `{path, etag}` and the `ETag` header.
+- Weak tags (`W/"…"`, as Nginx produces with gzip), lists of tags and `*` are accepted.
 
 ## Layout
 
 ```
 api/
   PLAN.md
-  pyproject.toml          deps managed by uv (fastapi, uvicorn; dev: pytest, httpx)
-  uv.lock
-  .python-version         pinned interpreter
-  .env.example            RECIPE_DIR, DB_PATH, TOKEN_TTL_DAYS
+  pyproject.toml, uv.lock, .python-version
+  .env.example            RECIPE_DIR, DB_PATH, TOKEN_TTL_DAYS, ALLOWED_ORIGINS, MAX_RECIPE_BYTES, GEMINI_*
   app/
-    main.py               routes
-    auth.py               scrypt hashing, token create/verify/revoke
-    db.py                 sqlite connection, schema creation
-    storage.py            path resolver, atomic write, list, read, locks
-    titles.py             title extraction from >> metadata lines
-    config.py             env settings
+    main.py               create_app(): routes, CORS, conflict check
+    auth.py               scrypt, tokens, login throttle
+    db.py                 connection, schema
+    storage.py            path checks, list, read, atomic write, ETags
+    titles.py             title extraction and cleaning
+    ai_import.py          AI import: page fetch with SSRF checks, Gemini
+    config.py             settings from environment and .env
   scripts/
-    create_user.py        uv run python scripts/create_user.py <username>  (prompts for password)
-  tests/
-    test_storage.py       path traversal, atomic write, listing
-    test_titles.py        title line, fallback to file name
-    test_auth.py          login, bad password, token expiry, logout
-    test_recipes.py       GET public, PUT with and without token
-    test_conflict.py      428 without If-Match, 412 on stale hash, 200/201 on success
+    create_user.py        create user or --reset-password
+  tests/                  113 tests: storage, titles, auth, recipes, conflict, CORS, AI import
 ```
-
-## Build order
-
-1. `uv init` and dependencies, `db.py` schema: `users(username PK, password_hash, salt, created_at)`, `tokens(token_hash PK, username, expires_at)`.
-2. `storage.py` with the path resolver, listing, atomic write and locks, plus tests.
-3. `titles.py` with tests.
-4. `auth.py` and `scripts/create_user.py`, then tests.
-5. `main.py` routes and the conflict check, then tests with `httpx`.
-6. Run locally, smoke test with `curl`.
 
 ## Running it
 
 ```bash
 cd api
+cp .env.example .env      # then set ALLOWED_ORIGINS to the app's URL
 uv sync
 uv run python scripts/create_user.py korbinian
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+uv run uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
 uv run pytest
 ```
 
-Behind Nginx Proxy Manager, same as `ai-import/`, with HTTPS at the proxy.
+In the desktop app, the `api` entry in `.claude/launch.json` starts the server.
+Production: behind Nginx Proxy Manager with HTTPS. If the throttle should see real client IPs,
+run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy address>`.
 
-## Client changes (later, separate step)
+## Next steps
 
-- `cookApi.ts`: new paths (`/recipes`, `/recipe/{path}`), bearer token instead of Basic Auth, `ETag` kept per recipe and sent as `If-Match`.
-- Conflict handling: replace the GET-compare-PUT sequence with a single PUT using `If-Match`.
-- Settings: a login form instead of user and password fields. The token goes in `localStorage`.
-- The `ai-import` service keeps its own Basic Auth unless you want it moved here too.
-
-## Status
-
-Planned, not started. Waiting for your go.
+1. ~~Client switch~~ done: new paths, bearer token, `If-Match` from remembered ETags, `412` → existing conflict dialog. Sync downloads only recipes whose ETag changed.
+2. ~~Settings login form~~ done.
+3. **Images**, when wanted: `GET /files/{path}`, same path rules. Images from external URLs in the front matter already work.
+4. **Deployment:** systemd unit or Docker service, `.env` on the server, backup of `RECIPE_DIR` and `DB_PATH`, migrate the existing recipe folder from CookCLI, set `DEFAULT_SERVER_URL` in the app (or `VITE_` variable) to the public URL.
+5. ~~AI import~~ moved into this API as `POST /import`. The separate `ai-import/` service is removed on this branch (still on `main` and the `cookcli-final` tag).

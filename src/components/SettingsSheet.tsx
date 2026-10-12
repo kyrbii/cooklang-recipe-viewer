@@ -11,7 +11,8 @@ import {
   Key,
   Eye,
   EyeOff,
-  LogOut
+  LogOut,
+  LogIn
 } from 'lucide-react';
 import { cookApi, DEFAULT_SERVER_URL } from '../services/cookApi';
 import type { ConnectionStatus } from '../types/cook';
@@ -32,48 +33,53 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   onSync
 }) => {
   const [serverUrl, setServerUrl] = useState(() => cookApi.getServerUrl());
-  const [serverUser, setServerUser] = useState(() => cookApi.getCredentials().user);
-  const [serverPass, setServerPass] = useState(() => cookApi.getCredentials().pass);
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // Der Anmeldestatus kommt aus cookApi und wird bei jedem Rendern gelesen: das Sheet bleibt geschlossen gemountet,
+  // und die Sitzung kann sich inzwischen geändert haben (z. B. abgelaufener Token beim KI-Import).
+  const [, setSessionVersion] = useState(0);
+  const refreshSession = () => setSessionVersion((v) => v + 1);
+  const loggedInAs = cookApi.isLoggedIn() ? cookApi.getUsername() : '';
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<'dark' | 'light'>(() => cookApi.getTheme());
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
-  const [authSavedFeedback, setAuthSavedFeedback] = useState(false);
 
   if (!isOpen) return null;
 
   const handleUrlChange = (val: string) => {
     setServerUrl(val);
     cookApi.setServerUrl(val);
+    // Ein Token gilt nur für den Server, der ihn ausgestellt hat
+    refreshSession();
   };
-
-  // Eingaben gelten sofort für Anfragen, gespeichert wird beim Verlassen des Feldes, beim Speichern und beim Schließen
-  const handleUserChange = (val: string) => {
-    setServerUser(val);
-    cookApi.useCredentials(val, serverPass);
-  };
-
-  const handlePassChange = (val: string) => {
-    setServerPass(val);
-    cookApi.useCredentials(serverUser, val);
-  };
-
-  const persistCredentials = () => cookApi.setCredentials(serverUser, serverPass);
 
   const handleClose = () => {
-    persistCredentials();
     onClose();
   };
 
-  const handleSaveCredentials = (e?: React.FormEvent) => {
+  const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    cookApi.setCredentials(serverUser, serverPass);
-    setAuthSavedFeedback(true);
-    setTimeout(() => setAuthSavedFeedback(false), 3000);
+    if (!loginUser.trim() || !loginPass) {
+      setLoginError('Bitte Benutzername und Passwort eingeben.');
+      return;
+    }
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      await cookApi.login(loginUser.trim(), loginPass);
+      refreshSession();
+      setLoginPass('');
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleSyncNow = async () => {
     cookApi.setServerUrl(serverUrl);
-    cookApi.setCredentials(serverUser, serverPass);
     setSyncFeedback(null);
     try {
       const result = await cookApi.syncRecipes();
@@ -96,25 +102,9 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   };
 
   const handleLogout = async () => {
-    setServerUser('');
-    setServerPass('');
-    cookApi.setCredentials('', '');
-
-    // Invalidate browser's in-memory HTTP Basic Auth session by sending an intentionally invalid request
-    try {
-      const cleanBase = serverUrl.trim().replace(/\/+$/, '');
-      if (cleanBase) {
-        await fetch(`${cleanBase}/api/recipes`, {
-          headers: {
-            Authorization: 'Basic ' + btoa('logout:invalid_password')
-          }
-        });
-      }
-    } catch {
-      // Ignore
-    }
-
-    setSyncFeedback('Zugangsdaten gelöscht & ausgeloggt');
+    await cookApi.logout();
+    refreshSession();
+    setSyncFeedback('Abgemeldet');
     setTimeout(() => setSyncFeedback(null), 3500);
   };
 
@@ -125,7 +115,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800">
           <div className="flex items-center gap-2">
             <span className="font-mela-serif text-lg font-bold text-stone-900 dark:text-stone-100">
-              Einstellungen & Cook CLI
+              Einstellungen & Server
             </span>
           </div>
           <button
@@ -143,7 +133,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
                 <Server className="w-3.5 h-3.5" />
-                <span>Cook CLI Server URL</span>
+                <span>Rezept-Server URL</span>
               </label>
 
               <span
@@ -166,7 +156,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               type="url"
               value={serverUrl}
               onChange={(e) => handleUrlChange(e.target.value)}
-              placeholder="http://192.168.1.50:9080"
+              placeholder={DEFAULT_SERVER_URL}
               className="w-full h-11 px-3.5 rounded-xl bg-white dark:bg-[#121110] border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40 focus:border-[#DE5D4E]"
             />
 
@@ -198,117 +188,109 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             )}
           </div>
 
-          {/* Authentication Card (HTTP Basic Auth for Nginx Proxy Manager) */}
-          <form
-            onSubmit={handleSaveCredentials}
-            className="space-y-3 p-4 rounded-2xl bg-white dark:bg-[#121110] border border-stone-200 dark:border-stone-800 shadow-xs"
-          >
+          {/* Anmeldung: nötig zum Speichern, Lesen ist ohne Anmeldung möglich */}
+          <div className="space-y-3 p-4 rounded-2xl bg-white dark:bg-[#121110] border border-stone-200 dark:border-stone-800 shadow-xs">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold uppercase tracking-wider text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-stone-500" />
-                <span>HTTP Basic Auth (optional)</span>
+                <span>Anmeldung</span>
               </label>
-              <div className="flex items-center gap-2">
-                {authSavedFeedback && (
-                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1 animate-fadeIn">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                    <span>Gespeichert</span>
-                  </span>
-                )}
-                {(serverUser.trim() || serverPass) && !authSavedFeedback && (
-                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span>Aktiv</span>
-                  </span>
-                )}
-              </div>
+              {loggedInAs && (
+                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Angemeldet</span>
+                </span>
+              )}
             </div>
 
-            <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
-              Für Nginx Proxy Manager / Reverse Proxy Schutz. Wird automatisch im Hintergrund als Authorization-Header bei allen API- und Bildabfragen mitgesendet, ohne den Browser-Login-Dialog auszulösen.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <div>
-                <label
-                  htmlFor="cook-username"
-                  className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
-                >
-                  <User className="w-3 h-3 text-stone-400" />
-                  <span>Benutzername</span>
-                </label>
-                <input
-                  id="cook-username"
-                  name="username"
-                  type="text"
-                  value={serverUser}
-                  onChange={(e) => handleUserChange(e.target.value)}
-                  onBlur={persistCredentials}
-                  placeholder="Benutzername"
-                  autoComplete="username"
-                  className="w-full h-10 px-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="cook-password"
-                  className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
-                >
-                  <Key className="w-3 h-3 text-stone-400" />
-                  <span>Passwort</span>
-                </label>
-                <div className="relative">
-                  <input
-                    id="cook-password"
-                    name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={serverPass}
-                    onChange={(e) => handlePassChange(e.target.value)}
-                    onBlur={persistCredentials}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    className="w-full h-10 pl-3 pr-8 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300"
-                    title={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
-                  >
-                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {serverUser.trim() && !serverPass && (
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                Passwort fehlt. Bitte eingeben und speichern.
-              </p>
-            )}
-
-            <div className="pt-1 flex items-center justify-between gap-2">
-              <button
-                type="submit"
-                className="px-3.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-900 dark:bg-stone-200 dark:hover:bg-white text-white dark:text-stone-900 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" />
-                <span>Zugangsdaten speichern</span>
-              </button>
-
-              {(serverUser.trim() || serverPass) && (
+            {loggedInAs ? (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-stone-700 dark:text-stone-300">
+                  Angemeldet als <span className="font-semibold">{loggedInAs}</span>
+                </p>
                 <button
                   type="button"
                   onClick={handleLogout}
                   className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-900 text-stone-700 dark:text-stone-300 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-stone-200 dark:border-stone-800"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  <span>Ausloggen / Löschen</span>
+                  <span>Abmelden</span>
                 </button>
-              )}
-            </div>
-          </form>
+              </div>
+            ) : (
+              <form onSubmit={handleLogin} className="space-y-3">
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                  Rezepte lesen geht ohne Anmeldung. Zum Speichern und Bearbeiten bitte anmelden. Konten werden auf dem Server angelegt.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label
+                      htmlFor="cook-username"
+                      className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
+                    >
+                      <User className="w-3 h-3 text-stone-400" />
+                      <span>Benutzername</span>
+                    </label>
+                    <input
+                      id="cook-username"
+                      name="username"
+                      type="text"
+                      value={loginUser}
+                      onChange={(e) => setLoginUser(e.target.value)}
+                      placeholder="Benutzername"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      className="w-full h-10 px-3 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="cook-password"
+                      className="text-[11px] font-medium text-stone-600 dark:text-stone-400 mb-1 flex items-center gap-1"
+                    >
+                      <Key className="w-3 h-3 text-stone-400" />
+                      <span>Passwort</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="cook-password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        value={loginPass}
+                        onChange={(e) => setLoginPass(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                        className="w-full h-10 pl-3 pr-8 rounded-xl bg-stone-50 dark:bg-stone-900/60 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/40"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300"
+                        title={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
+                      >
+                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {loginError && (
+                  <p className="text-[11px] text-rose-700 dark:text-rose-400 leading-relaxed">{loginError}</p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="px-3.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-900 dark:bg-stone-200 dark:hover:bg-white text-white dark:text-stone-900 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>{isLoggingIn ? 'Melde an...' : 'Anmelden'}</span>
+                </button>
+              </form>
+            )}
+          </div>
 
           {/* Theme Option */}
           <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center justify-between">

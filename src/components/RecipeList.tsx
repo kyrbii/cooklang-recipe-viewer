@@ -198,7 +198,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             onClick={onSync}
             disabled={isSyncing}
             className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
-            title="Rezepte mit Cook CLI Server synchronisieren"
+            title="Rezepte mit dem Server synchronisieren"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#DE5D4E]' : ''}`} />
           </button>
@@ -207,7 +207,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           <button
             onClick={onOpenSettings}
             className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform cursor-pointer"
-            title="Einstellungen & Cook CLI Server"
+            title="Einstellungen & Server"
           >
             <MoreHorizontal className="w-5 h-5" />
           </button>
@@ -284,7 +284,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             </p>
             <p className="text-xs text-stone-500 dark:text-stone-400 max-w-sm mx-auto mb-5 leading-relaxed">
               {recipes.length === 0
-                ? 'Verbinde dich mit deinem Cook CLI Server oder erstelle dein erstes Cooklang Rezept.'
+                ? 'Verbinde dich mit deinem Rezept-Server oder erstelle dein erstes Cooklang Rezept.'
                 : 'Passe deine Suchbegriffe an oder wähle eine andere Kategorie.'}
             </p>
             {recipes.length === 0 && (

@@ -121,7 +121,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
       const msg =
         err instanceof Error && err.message && !/fetch|abort/i.test(err.message)
           ? err.message
-          : 'Der Cook-Server ist derzeit nicht erreichbar.';
+          : 'Der Rezept-Server ist derzeit nicht erreichbar.';
       setLoadError(msg);
       setPhase('blocked');
     }
@@ -448,7 +448,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
                 Ungespeicherte Änderungen vorhanden
               </p>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">
-                Deine Änderungen wurden noch nicht an den Cook Server übertragen. Was möchtest du tun?
+                Deine Änderungen wurden noch nicht an den Server übertragen. Was möchtest du tun?
               </p>
               <div className="flex flex-wrap gap-2 mt-3.5">
                 <button
@@ -641,7 +641,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
               Verbindung zum Server erforderlich
             </h2>
             <p className="text-sm text-stone-600 dark:text-stone-400 mt-2.5 leading-relaxed">
-              Rezepte können nur mit aktiver Verbindung zu deinem Cook CLI Server bearbeitet werden,
+              Rezepte können nur mit aktiver Verbindung zum Rezept-Server bearbeitet werden,
               damit die lokale Kopie und die <span className="font-mono text-xs">.cook</span>-Dateien auf dem Server nicht auseinanderdriften.
             </p>
             {loadError && (

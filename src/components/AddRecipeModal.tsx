@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { X, FileText, Sparkles, CheckCircle2, AlertCircle, Tag, Loader2 } from 'lucide-react';
-import { cookApi } from '../services/cookApi';
+import { cookApi, type ImportPayload } from '../services/cookApi';
 import type { Recipe } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
@@ -84,12 +84,12 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
-  // KI-Import: URL, Text oder Foto über den ai-import Dienst in Cooklang umwandeln
+  // KI-Import: URL, Text oder Foto über POST /import der API in Cooklang umwandeln
   const handleAiImport = async () => {
     setErrorMsg(null);
     setIsConverting(true);
     try {
-      let payload: Record<string, string>;
+      let payload: ImportPayload;
       if (aiMode === 'url') {
         if (!aiInput.trim()) throw new Error('Bitte gib eine Webseiten-URL ein.');
         payload = { url: aiInput.trim() };
@@ -101,17 +101,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         payload = { image: aiPhoto.data, mimeType: aiPhoto.mimeType };
       }
 
-      const res = await fetch(`${cookApi.getServerUrl().replace(/\/+$/, '')}/ai/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...cookApi.getAuthHeaders() },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || `Umwandlung fehlgeschlagen (HTTP ${res.status}).`);
-      }
-
-      handleContentChange(data.cooklang);
+      handleContentChange(await cookApi.importRecipe(payload));
       setActiveTab('text');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Umwandlung fehlgeschlagen.');
@@ -151,7 +141,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
 
   const finalServerPath = recipeName.trim().replace(/\.cook$/i, '');
 
-  // Save recipe to Cook CLI server using official PUT endpoint
+  // Neues Rezept anlegen: PUT /recipe/{path}, überschreibt nie ein bestehendes
   const handleSaveRecipe = async () => {
     if (!recipeName.trim()) {
       setErrorMsg('Bitte gib einen Namen für das Rezept ein.');
@@ -166,7 +156,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     setIsSaving(true);
 
     try {
-      // Official Cook CLI endpoint: PUT /api/recipes/{*path} with raw .cook text
       const result = await cookApi.saveRecipeToServer(finalServerPath, cookContent);
 
       if (!result.success) {
@@ -206,7 +195,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               Rezept hinzufügen
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              Direkt auf deinem Cook CLI Server speichern
+              Direkt auf dem Rezept-Server speichern
             </p>
           </div>
           <button
@@ -483,12 +472,12 @@ Mit @Gemüsebrühe{500%ml} ablöschen und für ~{15%min} köcheln lassen.`}
             {isSaving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Wird auf Cook Server gespeichert...</span>
+                <span>Wird gespeichert...</span>
               </>
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Auf Cook Server speichern</span>
+                <span>Auf Server speichern</span>
               </>
             )}
           </button>

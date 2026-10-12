@@ -75,6 +75,8 @@ export interface Recipe {
   rawCook?: string;
   image?: string;
   cachedAt?: number;
+  /** Server version of the recipe file (ETag), used to skip unchanged recipes and for If-Match */
+  etag?: string;
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';

@@ -16,7 +16,9 @@ import {
   Pencil,
   Tag,
   Lightbulb,
-  Sparkles
+  Sparkles,
+  Trash2,
+  Copy
 } from 'lucide-react';
 import type { Recipe, StepItem } from '../types/cook';
 import {
@@ -27,6 +29,9 @@ import {
   sortIngredientsByQuantity
 } from '../utils/cooklangParser';
 import { cookApi } from '../services/cookApi';
+import { useLoginUser } from '../hooks/useLoginUser';
+import { copyText, ingredientListText } from '../utils/ingredientText';
+import { ConfirmDialog } from './ConfirmDialog';
 import { useTimers } from '../context/useTimers';
 import { recipeShareUrl } from '../utils/recipeLink';
 import { AuthenticatedImage } from './AuthenticatedImage';
@@ -36,6 +41,8 @@ interface RecipeDetailProps {
   onBack: () => void;
   onOpenSettings: () => void;
   onEdit: () => void;
+  /** Called with the path after the recipe was deleted on the server */
+  onDeleted: (path: string) => void;
 }
 
 function formatRemaining(totalSeconds: number): string {
@@ -48,9 +55,31 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   recipe,
   onBack,
   onOpenSettings,
-  onEdit
+  onEdit,
+  onDeleted
 }) => {
   const { timers, addTimer, startTimer, pauseTimer } = useTimers();
+  const loginUser = useLoginUser();
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    const result = await cookApi.deleteRecipe(recipe.path);
+    setIsDeleting(false);
+    if (result.status === 'deleted') {
+      setIsDeleteOpen(false);
+      onDeleted(recipe.path);
+      return;
+    }
+    setDeleteError(
+      result.status === 'conflict'
+        ? 'Das Rezept wurde auf dem Server geändert. Öffne es neu, bevor du es löschst.'
+        : result.message
+    );
+  };
 
   // Screen Wake Lock (Cook Mode)
   const [isCookMode, setIsCookMode] = useState(false);
@@ -142,6 +171,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
     cookApi.getFavorites().includes(recipe.id)
   );
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedIngredients, setCopiedIngredients] = useState(false);
 
   const ratio = currentServings / baseServings;
   // Faktor zur Anzeige: maximal zwei Nachkommastellen, ohne unnötige Nullen
@@ -151,6 +181,14 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
     () => sortIngredientsByQuantity(aggregateIngredients(recipe.ingredients)),
     [recipe]
   );
+
+  // Copies all ingredients at the current servings, not only the open ones
+  const handleCopyIngredients = async () => {
+    const ok = await copyText(ingredientListText(ingredients, ratio));
+    if (!ok) return;
+    setCopiedIngredients(true);
+    setTimeout(() => setCopiedIngredients(false), 2000);
+  };
 
   const tags = useMemo(() => {
     const raw = recipe.metadata.tags ?? recipe.metadata.tag;
@@ -254,6 +292,20 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
           </button>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {loginUser && (
+              <button
+                onClick={() => {
+                  setDeleteError(null);
+                  setIsDeleteOpen(true);
+                }}
+                className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 active:scale-95 transition-all cursor-pointer"
+                title="Rezept vom Server löschen"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Löschen</span>
+              </button>
+            )}
+
             {/* Edit Recipe Button */}
             <button
               id="recipe-edit-button"
@@ -538,7 +590,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
         <div className="contents lg:block lg:col-span-5 xl:col-span-4">
           <div className="order-2 lg:order-none space-y-5 pt-4 lg:pt-0 lg:bg-stone-100/60 dark:lg:bg-stone-900/50 lg:p-6 lg:rounded-3xl lg:border lg:border-stone-200/70 dark:lg:border-stone-800/80">
             {/* Ingredients Header */}
-            <div className="flex items-center justify-between pb-1 border-b border-stone-200/70 dark:border-stone-800/80">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-1 border-b border-stone-200/70 dark:border-stone-800/80">
               <div className="flex items-baseline gap-2">
                 <h2 className="font-mela-serif text-2xl font-bold text-stone-900 dark:text-stone-100">
                   Zutaten
@@ -547,9 +599,24 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   ({ingredients.length})
                 </span>
               </div>
-              <span className="text-xs font-medium text-stone-500 dark:text-stone-400">
-                {checkedIngredients.size}/{ingredients.length} erledigt
-              </span>
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-xs font-medium text-stone-500 dark:text-stone-400 whitespace-nowrap">
+                  {checkedIngredients.size}/{ingredients.length} erledigt
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyIngredients}
+                  aria-label={copiedIngredients ? 'Zutaten kopiert' : 'Zutaten als Liste kopieren'}
+                  title={copiedIngredients ? 'Kopiert' : 'Zutaten als Liste in die Zwischenablage kopieren'}
+                  className="w-8 h-8 rounded-full flex items-center justify-center bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-300/60 dark:hover:bg-stone-700 active:scale-95 transition-all cursor-pointer"
+                >
+                  {copiedIngredients ? (
+                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Serving Scaler Box directly above ingredients */}
@@ -683,6 +750,23 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={isDeleteOpen}
+        title="Rezept löschen"
+        message={
+          <>
+            <p>
+              <span className="font-semibold text-stone-800 dark:text-stone-200">{recipe.name}</span> wird vom Server gelöscht.
+              Das lässt sich nicht rückgängig machen.
+            </p>
+          </>
+        }
+        confirmLabel="Endgültig löschen"
+        busy={isDeleting}
+        error={deleteError}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setIsDeleteOpen(false)}
+      />
     </div>
   );
 };

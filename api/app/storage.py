@@ -98,6 +98,14 @@ class RecipeStore:
             Path(tmp).unlink(missing_ok=True)
             raise
 
+    def delete(self, file: Path) -> None:
+        """Removes the file, then empty folders above it, up to the recipe root."""
+        file.unlink()
+        folder = file.parent
+        while folder != self.root and folder.is_relative_to(self.root) and not any(folder.iterdir()):
+            folder.rmdir()
+            folder = folder.parent
+
     def list(self) -> list[RecipeEntry]:
         """All recipes, sorted by path. Skips hidden entries and symlinks."""
         entries: list[RecipeEntry] = []

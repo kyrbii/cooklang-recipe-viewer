@@ -131,6 +131,10 @@ const MelaApp: React.FC = () => {
             onBack={closeRecipe}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onEdit={() => setEditingRecipe(shownRecipe)}
+            onDeleted={(path) => {
+              setRecipes((prev) => prev.filter((r) => r.path !== path));
+              closeRecipe();
+            }}
           />
         ) : (
           <RecipeList

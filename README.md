@@ -46,6 +46,7 @@ Der Ordner [`api/`](api/) enthält die API (Python, FastAPI, uv). Details und En
 | `GET` | `/recipes` | nein |
 | `GET` | `/recipe/{pfad}` | nein |
 | `PUT` | `/recipe/{pfad}` | ja, mit `If-Match` beim Überschreiben |
+| `DELETE` | `/recipe/{pfad}` | ja, mit `If-Match` |
 | `POST` | `/import` | ja (KI-Import) |
 | `POST` | `/login`, `/logout` | – |
 | `DELETE` | `/account` | ja, mit Passwort |

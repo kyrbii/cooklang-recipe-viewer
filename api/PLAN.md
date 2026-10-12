@@ -19,6 +19,7 @@ Tested in the browser: list, login, edit and save, conflict dialog, forced overw
 | GET | `/recipes` | public | `{recipes: [{path, title, etag}]}`, sorted by path |
 | GET | `/recipe/{path}` | public | Raw `.cook` text, `ETag` header |
 | PUT | `/recipe/{path}` | token | Create or overwrite, raw text body, conflict check |
+| DELETE | `/recipe/{path}` | token | Delete. Needs `If-Match` like a save: 412 with the server version if it changed, 428 without it. Empty folders are removed |
 | POST | `/import` | token | AI import: `{url}`, `{text}` or `{image, mimeType}` → `{cooklang}` |
 
 Users are created only by `scripts/create_user.py`, removed by `scripts/delete_user.py` (admin) or `DELETE /account` (self-service). Images are out of scope for now.

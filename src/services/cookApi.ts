@@ -68,6 +68,11 @@ interface ListEntry {
   etag: string;
 }
 
+export type DeleteRecipeResult =
+  | { status: 'deleted' }
+  | { status: 'conflict'; serverContent: string }
+  | { status: 'error'; message: string };
+
 class CookApiService {
   private token: string = '';
   private tokenUser: string = '';
@@ -195,6 +200,57 @@ class CookApiService {
   }
 
   /** Revokes the token on the server (best effort) and forgets it locally */
+  /**
+   * Deletes a recipe on the server. Sends the version the client last saw as If-Match,
+   * so a recipe changed elsewhere is not deleted; the server version is returned instead.
+   */
+  public async deleteRecipe(recipePath: string): Promise<DeleteRecipeResult> {
+    const path = cleanRecipePath(recipePath);
+    let res: Response;
+    try {
+      const version = await this.versionToOverwrite(path, undefined, false);
+      if ('conflict' in version) return { status: 'conflict', serverContent: version.conflict };
+      res = await this.fetchApi(`recipe/${encodeRecipePath(path)}`, {
+        method: 'DELETE',
+        headers: { 'If-Match': version.etag }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: 'error', message: `Verbindung zum Server fehlgeschlagen: ${msg}` };
+    }
+
+    if (res.status === 412) {
+      const serverText = await res.text();
+      this.rememberServerVersion(path, serverText, res.headers.get('ETag'));
+      return { status: 'conflict', serverContent: serverText };
+    }
+    if (res.status === 404) {
+      // Already gone on the server: the local copies are stale either way
+      this.forgetRecipe(path);
+      return { status: 'deleted' };
+    }
+    if (!res.ok) {
+      if (res.status === 401) this.clearSession();
+      return { status: 'error', message: await this.readErrorMessage(res) };
+    }
+
+    this.setStatus('connected');
+    this.forgetRecipe(path);
+    return { status: 'deleted' };
+  }
+
+  /** Removes a recipe from every local copy: list cache, detail cache, draft and remembered version */
+  private forgetRecipe(path: string): void {
+    this.serverVersions.delete(path);
+    this.clearDraft(path);
+    try {
+      localStorage.removeItem(`${STORAGE_KEYS.RECIPE_DETAIL_PREFIX}${path}`);
+    } catch {
+      // Ignore
+    }
+    this.setCachedRecipes(this.getCachedRecipes().filter((r) => r.path !== path));
+  }
+
   /**
    * Deletes the signed-in account. The server asks for the password again.
    * Recipes are shared and stay on the server.

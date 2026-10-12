@@ -9,7 +9,9 @@ import {
   Plus,
   LayoutGrid,
   List as ListIcon,
-  Heart
+  Heart,
+  ArrowUp,
+  UserRound
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
@@ -43,6 +45,17 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchBarRef = useRef<HTMLDivElement>(null);
+  // Shows the "back to top" button once the search bar has scrolled out of view
+  const [searchBarHidden, setSearchBarHidden] = useState(false);
+
+  useEffect(() => {
+    const element = searchBarRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => setSearchBarHidden(!entry.isIntersecting));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const handleToggleFavorite = (recipeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -157,19 +170,23 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             </span>
             <span className="text-stone-300 dark:text-stone-700">•</span>
             {loginUser ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400" title="Du bist angemeldet und kannst Rezepte speichern">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Angemeldet als {loginUser}</span>
+              <span
+                role="img"
+                aria-label={`Angemeldet als ${loginUser}`}
+                title={`Angemeldet als ${loginUser}`}
+                className="inline-flex text-emerald-600 dark:text-emerald-400"
+              >
+                <UserRound className="w-4 h-4" />
               </span>
             ) : (
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="inline-flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300"
-                title="Zum Speichern und KI-Import anmelden"
+                aria-label="Nicht angemeldet, zum Anmelden öffnen"
+                title="Nicht angemeldet: zum Speichern und KI-Import anmelden"
+                className="inline-flex text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-stone-600" />
-                <span>Nicht angemeldet</span>
+                <UserRound className="w-4 h-4" />
               </button>
             )}
           </p>
@@ -234,7 +251,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       </div>
 
       {/* Search Bar with Desktop "/" hint */}
-      <div className="relative mb-4 sm:mb-5">
+      <div ref={searchBarRef} className="relative mb-4 sm:mb-5">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
         <input
           ref={searchInputRef}
@@ -340,7 +357,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           </div>
         ) : (
           /* List Mode (Clean distinct rows with clear separation) */
-          <div className="flex flex-col gap-3 sm:gap-3.5">
+          <div className="flex flex-col gap-4 sm:gap-5">
             {filteredRecipes.map((recipe) => (
               <RecipeRow
                 key={recipe.id || recipe.path}
@@ -353,6 +370,17 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           </div>
         )}
       </div>
+      {searchBarHidden && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Nach oben"
+          title="Nach oben"
+          className="fixed bottom-6 right-5 z-30 w-11 h-11 rounded-full bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700 shadow-lg flex items-center justify-center active:scale-95 transition-all cursor-pointer animate-fadeIn"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>
+      )}
     </div>
   );
 };
@@ -480,9 +508,9 @@ const RecipeRow: React.FC<{
   return (
     <div
       onClick={onClick}
-      className="p-3.5 sm:p-4 flex items-center gap-4 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group"
+      className="p-5 sm:p-6 flex items-center gap-5 sm:gap-6 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group"
     >
-      <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
+      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
         {recipe.image ? (
           <AuthenticatedImage
             src={recipe.image}
@@ -502,34 +530,34 @@ const RecipeRow: React.FC<{
         )}
       </div>
 
-      <div className="flex-1 min-w-0 pr-2">
-        <h2 className="font-mela-serif text-base sm:text-lg font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1 group-hover:text-[#DE5D4E] transition-colors">
+      <div className="flex-1 min-w-0 pr-2 py-1">
+        <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1 group-hover:text-[#DE5D4E] transition-colors">
           {recipe.name}
         </h2>
 
-        <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400 mt-1">
+        <div className="flex items-center gap-2.5 text-xs text-stone-500 dark:text-stone-400 mt-2">
           {time && (
-            <span className="flex items-center gap-1 font-medium text-stone-700 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-md">
+            <span className="flex items-center gap-1 font-medium text-stone-700 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 px-2.5 py-1 rounded-md">
               <Clock className="w-3 h-3 text-[#DE5D4E]" />
               <span>{String(time)}</span>
             </span>
           )}
 
           {category && (
-            <span className="capitalize px-2 py-0.5 rounded-md bg-stone-100/70 dark:bg-stone-800/60 text-stone-600 dark:text-stone-400 text-[11px] font-medium">
+            <span className="capitalize px-2.5 py-1 rounded-md bg-stone-100/70 dark:bg-stone-800/60 text-stone-600 dark:text-stone-400 text-xs font-medium">
               {category}
             </span>
           )}
 
           {author && (
-            <span className="truncate hidden sm:inline text-stone-400 dark:text-stone-500 text-[11px]">
+            <span className="truncate hidden sm:inline text-stone-400 dark:text-stone-500 text-xs">
               {author}
             </span>
           )}
         </div>
 
         {recipe.metadata.description && (
-          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-1.5 leading-relaxed">
+          <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-1 mt-2.5 leading-relaxed">
             {String(recipe.metadata.description)}
           </p>
         )}
@@ -539,7 +567,7 @@ const RecipeRow: React.FC<{
       <button
         type="button"
         onClick={onToggleFavorite}
-        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
           isFavorite
             ? 'bg-rose-50 dark:bg-rose-950/40 text-[#DE5D4E]'
             : 'text-stone-300 dark:text-stone-600 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -547,7 +575,7 @@ const RecipeRow: React.FC<{
         title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
       >
         <Heart
-          className={`w-4 h-4 ${
+          className={`w-5 h-5 ${
             isFavorite ? 'fill-[#DE5D4E] text-[#DE5D4E]' : ''
           }`}
         />

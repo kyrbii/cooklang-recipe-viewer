@@ -5,6 +5,7 @@ import type { Recipe } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import type { ShareDraft } from '../utils/shareImport';
+import { slugify } from '../utils/recipeLink';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -64,7 +65,8 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     if (!nameUserEdited) {
       const extracted = extractTitleFromContent(newContent);
       if (extracted) {
-        setRecipeName(extracted);
+        // Dateiname vorschlagen: Titel als Slug (klein, Bindestriche). Der Nutzer kann ihn ändern.
+        setRecipeName(slugify(extracted));
       }
     }
   };

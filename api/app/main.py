@@ -194,6 +194,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"ETag": new_tag},
         )
 
+    @app.delete("/recipe/{path:path}", status_code=204)
+    async def delete_recipe(path: str, request: Request, _user: Annotated[str, Depends(require_user)]):
+        """Deletes a recipe. Like saving, it needs If-Match, so a version changed elsewhere is not deleted."""
+        _, file = resolve(path)
+        async with write_lock:
+            current = await run_in_threadpool(store.read_bytes, file)
+            if current is None:
+                raise HTTPException(404, "recipe not found")
+            if_match = (request.headers.get("if-match") or "").strip() or None
+            if if_match is None:
+                raise HTTPException(428, "If-Match required to delete a recipe")
+            current_tag = etag(current)
+            if not if_match_satisfied(if_match, current_tag):
+                return Response(current, status_code=412, media_type=TEXT, headers={"ETag": current_tag})
+            await run_in_threadpool(store.delete, file)
+        return Response(status_code=204)
+
     @app.post("/import", response_model=ImportResponse)
     async def import_recipe(request: Request, _user: Annotated[str, Depends(require_user)]):
         """Web page, text or photo → Cooklang. Needs a login, since every call uses Gemini quota."""

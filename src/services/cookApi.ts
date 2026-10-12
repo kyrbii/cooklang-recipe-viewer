@@ -3,7 +3,7 @@ import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { API_URL } from '../config';
 
 /**
- * Client for the Rezepte API (api/ in this repository):
+ * Client for the stir API (api/ in this repository):
  *   GET  /recipes          list with path, title, etag (public)
  *   GET  /recipe/{path}    raw .cook text, ETag header (public)
  *   PUT  /recipe/{path}    create or overwrite, needs a login token and If-Match for existing recipes

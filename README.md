@@ -1,4 +1,4 @@
-# Rezepte
+# stir
 
 Mobile-first PWA für deine [Cooklang](https://cooklang.org/)-Rezepte. Die App spricht mit einer eigenen kleinen API ([`api/`](api/)), lädt die `.cook`-Dateien und funktioniert offline mit dem zuletzt geladenen Stand.
 

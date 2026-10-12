@@ -88,7 +88,7 @@ export const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ isOpen, onClose })
             <p>
               Beim Import aus einer Webseite, aus Text oder aus einem Foto wird der Inhalt an Google (Gemini API) gesendet, damit er in
               Cooklang umgewandelt wird. Bei einer Webseite ruft der Server die Seite selbst ab. Google verarbeitet die Daten nach den
-              Bedingungen der Gemini API, die auch in Drittländern, etwa den USA, stattfinden kann. Hinweis: Weitere Nutzungsbedinungen 
+              Bedingungen der Gemini API, die auch in Drittländern, etwa den USA, stattfinden kann. Hinweis: Weitere Nutzungsbedinungen
               können auf der Webstie von Google als auch Google Gemini nachgelesen werden. Die angegebenen Daten werden zu Trainingszwecken
               benutzt.
             </p>
@@ -131,7 +131,7 @@ export const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ isOpen, onClose })
             </p>
           </Section>
 
-          <p className="text-[11px] text-stone-400 dark:text-stone-500">Stand: [Datum]</p>
+          <p className="text-[11px] text-stone-400 dark:text-stone-500">Stand: Oktober 2026</p>
         </div>
       </div>
     </div>

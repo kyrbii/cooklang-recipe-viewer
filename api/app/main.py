@@ -81,7 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     bearer = HTTPBearer(auto_error=False)
     gemini_config = ai_import.GeminiConfig(api_key=settings.gemini_api_key, model=settings.gemini_model)
 
-    app = FastAPI(title="Rezepte API", version="0.1.0")
+    app = FastAPI(title="stir API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,

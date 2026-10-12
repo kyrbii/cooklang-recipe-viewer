@@ -14,9 +14,17 @@ from starlette.concurrency import run_in_threadpool
 
 from . import ai_import, auth, db
 from .config import Settings, load_settings
-from .storage import InvalidPath, RecipeStore, etag, if_match_satisfied
+from urllib.parse import quote
+
+from .storage import MEDIA_TYPES, InvalidPath, RecipeStore, etag, if_match_satisfied, sniff_photo
 
 TEXT = "text/plain; charset=utf-8"
+
+
+def photo_url(path: str, version: str) -> str:
+    """Relative URL of a recipe photo. Each segment is encoded, the version changes when the photo changes."""
+    encoded = "/".join(quote(segment, safe="") for segment in path.split("/"))
+    return f"recipe-photo/{encoded}?v={version}"
 
 
 class LoginRequest(BaseModel):
@@ -38,6 +46,15 @@ class RecipeItem(BaseModel):
     path: str
     title: str
     etag: str
+    # When the recipe file was last saved, unix milliseconds
+    modified: int
+    # Relative URL of the recipe photo, with a version parameter; None without a photo
+    image: str | None = None
+
+
+class PhotoResponse(BaseModel):
+    path: str
+    image: str
 
 
 class RecipeList(BaseModel):
@@ -72,6 +89,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "If-Match"],
         expose_headers=["ETag"],
     )
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        # Photos and recipes are served with the type the server determined, never the browser's guess
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # The recipes are public, but they should not end up in search engines
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+        return response
 
     def get_conn() -> Iterator[sqlite3.Connection]:
         conn = db.connect(settings.db_path)
@@ -138,9 +164,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         auth.delete_user(conn, user)
         return Response(status_code=204)
 
+    @app.get("/health")
+    def health(conn: Conn):
+        """For the container health check: database answers and the recipe folder is there."""
+        conn.execute("SELECT 1")
+        if not settings.recipe_dir.is_dir():
+            raise HTTPException(503, "recipe folder missing")
+        return {"status": "ok"}
+
     @app.get("/recipes", response_model=RecipeList)
     def list_recipes():
-        return RecipeList(recipes=[RecipeItem(**vars(e)) for e in store.list()])
+        return RecipeList(
+            recipes=[
+                RecipeItem(
+                    path=e.path,
+                    title=e.title,
+                    etag=e.etag,
+                    modified=e.modified,
+                    image=photo_url(e.path, e.photo_version) if e.photo_version else None,
+                )
+                for e in store.list()
+            ]
+        )
 
     @app.get("/recipe/{path:path}")
     def get_recipe(path: str):
@@ -209,6 +254,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not if_match_satisfied(if_match, current_tag):
                 return Response(current, status_code=412, media_type=TEXT, headers={"ETag": current_tag})
             await run_in_threadpool(store.delete, file)
+        return Response(status_code=204)
+
+    @app.get("/recipe-photo/{path:path}")
+    def get_photo(path: str):
+        _, file = resolve(path)
+        photo = store.find_photo(file)
+        if photo is None:
+            raise HTTPException(404, "no photo")
+        data = photo.read_bytes()
+        return Response(data, media_type=MEDIA_TYPES[photo.suffix], headers={"ETag": etag(data), "Cache-Control": "no-cache"})
+
+    @app.put("/recipe-photo/{path:path}", response_model=PhotoResponse)
+    async def put_photo(path: str, request: Request, _user: Annotated[str, Depends(require_user)]):
+        """Sets the photo of an existing recipe. The file type is taken from its signature. Replaces any earlier photo."""
+        clean, file = resolve(path)
+        if not file.is_file():
+            raise HTTPException(404, "recipe not found")
+        data = await read_limited(request, settings.max_photo_bytes, "Das Foto ist zu groß.")
+        sniffed = sniff_photo(data)
+        if sniffed is None:
+            raise HTTPException(415, "Nur JPG, PNG oder WebP.")
+        ext, _ = sniffed
+        async with write_lock:
+            await run_in_threadpool(store.write_photo, file, data, ext)
+        version = str(store.find_photo(file).stat().st_mtime_ns)
+        return PhotoResponse(path=clean, image=photo_url(clean, version))
+
+    @app.delete("/recipe-photo/{path:path}", status_code=204)
+    async def delete_photo(path: str, _user: Annotated[str, Depends(require_user)]):
+        _, file = resolve(path)
+        async with write_lock:
+            removed = await run_in_threadpool(store.delete_photo, file)
+        if not removed:
+            raise HTTPException(404, "no photo")
         return Response(status_code=204)
 
     @app.post("/import", response_model=ImportResponse)

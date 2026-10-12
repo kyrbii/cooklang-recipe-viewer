@@ -66,6 +66,39 @@ interface ListEntry {
   path: string;
   title: string;
   etag: string;
+  /** When the recipe file was last saved, unix milliseconds */
+  modified?: number;
+  /** Relative URL of the recipe photo, or null */
+  image?: string | null;
+}
+
+/** Prefix of photo URLs served by the API. Used to tell them apart from images in the recipe metadata. */
+const PHOTO_PREFIX = 'recipe-photo/';
+/** Photos can be several MB on a mobile connection */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+export type PhotoResult = { status: 'saved'; image: string } | { status: 'deleted' } | { status: 'error'; message: string };
+
+/**
+ * The photo from the server wins. Without one, the image from the metadata applies,
+ * but a photo URL cached earlier must not stay after the photo was removed.
+ */
+function withServerPhoto(recipe: Recipe, image: string | null | undefined): Recipe {
+  if (image) return { ...recipe, image };
+  if (recipe.image?.startsWith(PHOTO_PREFIX)) return { ...recipe, image: undefined };
+  return recipe;
+}
+
+/** Adds what only the list knows: the photo and when the file was last saved */
+function withListInfo(recipe: Recipe, entry: ListEntry): Recipe {
+  const withPhoto = withServerPhoto(recipe, entry.image);
+  return entry.modified ? { ...withPhoto, modifiedAt: entry.modified } : withPhoto;
+}
+
+/** Standard order: most recently saved first, then by name */
+export function compareRecipes(a: Recipe, b: Recipe): number {
+  const byTime = (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0);
+  return byTime !== 0 ? byTime : a.name.localeCompare(b.name);
 }
 
 export type DeleteRecipeResult =
@@ -496,7 +529,7 @@ class CookApiService {
       const data = (await res.json()) as { recipes: ListEntry[] };
 
       const recipes = await Promise.all(data.recipes.map((entry) => this.loadListEntry(entry)));
-      recipes.sort((a, b) => a.name.localeCompare(b.name));
+      recipes.sort(compareRecipes);
 
       this.setStatus('connected');
       this.setCachedRecipes(recipes);
@@ -523,10 +556,10 @@ class CookApiService {
 
   private async loadListEntry(entry: ListEntry): Promise<Recipe> {
     const cached = this.getCachedRecipe(entry.path);
-    if (cached?.etag === entry.etag) return cached;
+    if (cached?.etag === entry.etag) return withListInfo(cached, entry);
 
     const fresh = await this.getRecipe(entry.path).catch(() => null);
-    if (fresh) return fresh;
+    if (fresh) return withListInfo(fresh, entry);
 
     // Download failed: show the entry with what the list knows
     return {
@@ -537,8 +570,73 @@ class CookApiService {
       metadata: {},
       steps: [],
       ingredients: [],
-      cookware: []
+      cookware: [],
+      image: entry.image ?? undefined,
+      modifiedAt: entry.modified || undefined
     };
+  }
+
+  /**
+   * Sets or removes a recipe's photo: sends the file (raw body, type from its signature on the server),
+   * then updates the cached copies. Needs a login.
+   */
+  public async uploadRecipePhoto(recipePath: string, photo: Blob): Promise<PhotoResult> {
+    if (!this.isLoggedIn()) return { status: 'error', message: 'Zum Hochladen eines Fotos bitte anmelden.' };
+    const path = cleanRecipePath(recipePath);
+    let res: Response;
+    try {
+      res = await this.fetchApi(
+        `${PHOTO_PREFIX}${encodeRecipePath(path)}`,
+        { method: 'PUT', headers: { 'Content-Type': photo.type || 'application/octet-stream' }, body: photo },
+        UPLOAD_TIMEOUT_MS
+      );
+    } catch {
+      return { status: 'error', message: 'Verbindung zum Server fehlgeschlagen. Das Foto wurde nicht gespeichert.' };
+    }
+    if (!res.ok) return { status: 'error', message: await this.photoErrorMessage(res) };
+
+    const data = (await res.json()) as { image: string };
+    this.setCachedImage(path, data.image);
+    return { status: 'saved', image: data.image };
+  }
+
+  /** Removes the photo of a recipe. The recipe itself stays. */
+  public async deleteRecipePhoto(recipePath: string): Promise<PhotoResult> {
+    if (!this.isLoggedIn()) return { status: 'error', message: 'Zum Entfernen eines Fotos bitte anmelden.' };
+    const path = cleanRecipePath(recipePath);
+    let res: Response;
+    try {
+      res = await this.fetchApi(`${PHOTO_PREFIX}${encodeRecipePath(path)}`, { method: 'DELETE' });
+    } catch {
+      return { status: 'error', message: 'Verbindung zum Server fehlgeschlagen. Das Foto wurde nicht entfernt.' };
+    }
+    if (res.status === 404) {
+      // Already gone on the server
+    } else if (!res.ok) {
+      return { status: 'error', message: await this.photoErrorMessage(res) };
+    }
+    this.setCachedImage(path, undefined);
+    return { status: 'deleted' };
+  }
+
+  private async photoErrorMessage(res: Response): Promise<string> {
+    if (res.status === 401) {
+      this.clearSession();
+      return 'Die Anmeldung ist abgelaufen. Bitte in den Einstellungen neu anmelden.';
+    }
+    if (res.status === 404) return 'Das Rezept existiert auf dem Server nicht (mehr).';
+    if (res.status === 413) return 'Das Foto ist zu groß (maximal 10 MB).';
+    if (res.status === 415) return 'Nur JPG-, PNG- oder WebP-Fotos sind möglich.';
+    return this.readErrorMessage(res);
+  }
+
+  /** Updates the image of the cached copies of a recipe. */
+  private setCachedImage(path: string, image: string | undefined): void {
+    const recipe = this.getCachedRecipe(path);
+    if (!recipe) return;
+    const updated = { ...recipe, image };
+    this.cacheRecipe(updated);
+    this.upsertCachedRecipe(updated);
   }
 
   /**
@@ -755,6 +853,8 @@ class CookApiService {
 
     const previous = this.getCachedRecipe(path);
     const updatedRecipe = this.parseRecipe(content, path, etag);
+    // Just saved, so it is now the most recent recipe
+    updatedRecipe.modifiedAt = Date.now();
     if (!updatedRecipe.image && previous?.image) {
       updatedRecipe.image = previous.image;
     }
@@ -805,8 +905,8 @@ class CookApiService {
       list[idx] = recipe;
     } else {
       list.push(recipe);
-      list.sort((a, b) => a.name.localeCompare(b.name));
     }
+    list.sort(compareRecipes);
     this.setCachedRecipes(list);
   }
 

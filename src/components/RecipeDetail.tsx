@@ -63,7 +63,6 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
     setDeleteError(null);

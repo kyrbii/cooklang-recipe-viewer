@@ -47,6 +47,9 @@ Der Ordner [`api/`](api/) enthält die API (Python, FastAPI, uv). Details und En
 | `GET` | `/recipe/{pfad}` | nein |
 | `PUT` | `/recipe/{pfad}` | ja, mit `If-Match` beim Überschreiben |
 | `DELETE` | `/recipe/{pfad}` | ja, mit `If-Match` |
+| `GET` | `/recipe-photo/{pfad}` | nein |
+| `PUT` | `/recipe-photo/{pfad}` | ja, Foto als JPG, PNG oder WebP (max. 10 MB; die App verkleinert vorher auf 1600 px und entfernt EXIF/GPS) |
+| `DELETE` | `/recipe-photo/{pfad}` | ja |
 | `POST` | `/import` | ja (KI-Import) |
 | `POST` | `/login`, `/logout` | – |
 | `DELETE` | `/account` | ja, mit Passwort |
@@ -69,6 +72,39 @@ Instagram-Links werden absichtlich abgelehnt, dort lässt sich nur die Beschreib
 ## Anmeldung
 
 Die Anmeldung in den Einstellungen liefert einen Token, der im Browser (`localStorage`) gespeichert wird, bis du dich abmeldest oder er abläuft (Standard 30 Tage). Das Passwort selbst wird nicht gespeichert. Jeder Skript-Code auf derselben Seite könnte den Token auslesen, für eine persönliche App ist das vertretbar. Beim Abmelden wird der Token auch auf dem Server ungültig.
+
+## Deployment (Docker)
+
+App und API laufen als zwei Container (`docker-compose.yml`), davor z. B. Nginx Proxy Manager mit je einem Proxy Host:
+
+```bash
+cp deploy.env.example .env   # öffentliche URLs, Ports, Datenordner, Gemini-Key eintragen
+docker compose up -d --build
+docker compose exec api python scripts/create_user.py <name>
+```
+
+- Die API-URL wird beim Bauen in die App eingebaut (`PUBLIC_API_URL`). Ändert sie sich, die App neu bauen.
+- `PUBLIC_APP_URL` wird automatisch als erlaubter CORS-Origin der API gesetzt.
+- Rezepte, Fotos und `api.db` liegen im `DATA_DIR` auf dem Host (Besitzer uid 1000). Diesen Ordner sichern.
+- Die API vertraut `X-Forwarded-For` (für die Login-Sperre). Den API-Port daher nur für den Proxy erreichbar machen.
+- Beide Container haben einen Healthcheck (`docker compose ps` zeigt `healthy`), Logs sind auf 3 × 10 MB begrenzt.
+- Die App sendet Sicherheits-Header (CSP u. a., siehe `docker/default.conf.template`). Die API-URL wird darin automatisch erlaubt.
+- Suchmaschinen: `robots.txt` und `noindex` auf App und API, die Rezepte sind öffentlich lesbar, aber nicht auffindbar.
+- Update: `git pull && docker compose up -d --build`.
+
+### Backup
+
+```bash
+docker compose exec -T api python scripts/backup.py /backups
+```
+
+Schreibt `api.db` (sicher kopiert, auch im laufenden Betrieb) und alle Rezepte samt Fotos und Dateizeiten als `.tar.gz` nach `BACKUP_DIR` und behält die neuesten 14. Täglich per Cron auf dem Host, z. B.:
+
+```
+30 3 * * * cd /pfad/zu/cooklang && docker compose exec -T api python scripts/backup.py /backups
+```
+
+Wiederherstellen: API stoppen, Archiv in `DATA_DIR` entpacken, API starten. Die Archive zusätzlich vom Server wegkopieren.
 
 ## Struktur
 

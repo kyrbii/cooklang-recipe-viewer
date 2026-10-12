@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Clock, Play, Pause, X } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from './types/cook';
-import { cookApi } from './services/cookApi';
+import { compareRecipes, cookApi } from './services/cookApi';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeEditor } from './components/RecipeEditor';
@@ -229,9 +229,8 @@ const MelaApp: React.FC = () => {
                 next[idx] = updatedRecipe;
               } else {
                 next.push(updatedRecipe);
-                next.sort((a, b) => a.name.localeCompare(b.name));
               }
-              return next;
+              return next.sort(compareRecipes);
             });
           }}
         />

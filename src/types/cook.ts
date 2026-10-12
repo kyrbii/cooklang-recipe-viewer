@@ -77,6 +77,8 @@ export interface Recipe {
   cachedAt?: number;
   /** Server version of the recipe file (ETag), used to skip unchanged recipes and for If-Match */
   etag?: string;
+  /** When the recipe file was last saved on the server (ms since epoch), for "most recent first" */
+  modifiedAt?: number;
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';

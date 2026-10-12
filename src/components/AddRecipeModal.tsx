@@ -6,6 +6,7 @@ import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import type { ShareDraft } from '../utils/shareImport';
 import { slugify } from '../utils/recipeLink';
+import { shrinkPhoto } from '../utils/shrinkPhoto';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -112,11 +113,18 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
-  const handlePhotoChange = (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 8 * 1024 * 1024) {
-      setErrorMsg('Das Foto ist größer als 8 MB.');
-      return;
+  const handlePhotoChange = async (chosen: File | undefined) => {
+    if (!chosen) return;
+    let file = chosen;
+    try {
+      // 2000 px keeps small print readable for the AI and the upload well under the API limit
+      file = await shrinkPhoto(chosen, 2000, 0.9);
+    } catch {
+      // Not decodable here (e.g. HEIC outside Safari): send the original, the AI may still read it
+      if (chosen.size > 8 * 1024 * 1024) {
+        setErrorMsg('Das Foto ist größer als 8 MB.');
+        return;
+      }
     }
     const reader = new FileReader();
     reader.onload = () => {
@@ -360,7 +368,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/heic"
-                    onChange={(e) => handlePhotoChange(e.target.files?.[0])}
+                    onChange={(e) => void handlePhotoChange(e.target.files?.[0])}
                     className="block w-full text-xs text-stone-600 dark:text-stone-400 file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-stone-200 dark:file:bg-stone-800 file:text-stone-800 dark:file:text-stone-200 file:font-semibold"
                   />
                   {aiPhoto && (

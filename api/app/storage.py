@@ -10,6 +10,7 @@ from pathlib import Path
 from .titles import recipe_title
 
 SUFFIX = ".cook"
+PHOTO_EXTENSIONS = (".jpg", ".png", ".webp")
 MAX_PATH_LENGTH = 512
 _BAD_SEGMENT = re.compile(r"[\x00-\x1f\x7f\\]")
 
@@ -23,6 +24,24 @@ class RecipeEntry:
     path: str
     title: str
     etag: str
+    # When the recipe file was last saved (unix milliseconds), for "most recent first"
+    modified: int = 0
+    # mtime of the photo file, used as a cache-busting version; None if the recipe has no photo
+    photo_version: str | None = None
+
+
+def sniff_photo(data: bytes) -> tuple[str, str] | None:
+    """(extension, media type) from the file signature, never from the name the client sent."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg", "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png", "image/png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
+MEDIA_TYPES = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 
 
 def etag(data: bytes) -> str:
@@ -98,8 +117,31 @@ class RecipeStore:
             Path(tmp).unlink(missing_ok=True)
             raise
 
+    def find_photo(self, file: Path) -> Path | None:
+        """The photo that belongs to a recipe file: same name, image extension."""
+        for ext in PHOTO_EXTENSIONS:
+            candidate = file.with_suffix(ext)
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+        return None
+
+    def write_photo(self, file: Path, data: bytes, ext: str) -> None:
+        """Replaces any existing photo of the recipe. Only one photo per recipe."""
+        self.delete_photo(file)
+        self.write_atomic(file.with_suffix(ext), data)
+
+    def delete_photo(self, file: Path) -> bool:
+        removed = False
+        for ext in PHOTO_EXTENSIONS:
+            candidate = file.with_suffix(ext)
+            if candidate.is_file():
+                candidate.unlink()
+                removed = True
+        return removed
+
     def delete(self, file: Path) -> None:
-        """Removes the file, then empty folders above it, up to the recipe root."""
+        """Removes the recipe and its photo, then empty folders above it, up to the recipe root."""
+        self.delete_photo(file)
         file.unlink()
         folder = file.parent
         while folder != self.root and folder.is_relative_to(self.root) and not any(folder.iterdir()):
@@ -125,6 +167,16 @@ class RecipeStore:
                     continue
                 data = file.read_bytes()
                 text = data.decode("utf-8", errors="replace")
-                entries.append(RecipeEntry(path=path, title=recipe_title(text, path), etag=etag(data)))
+                photo = self.find_photo(file)
+                photo_version = str(photo.stat().st_mtime_ns) if photo else None
+                entries.append(
+                    RecipeEntry(
+                        path=path,
+                        title=recipe_title(text, path),
+                        etag=etag(data),
+                        modified=file.stat().st_mtime_ns // 1_000_000,
+                        photo_version=photo_version,
+                    )
+                )
         entries.sort(key=lambda e: e.path)
         return entries

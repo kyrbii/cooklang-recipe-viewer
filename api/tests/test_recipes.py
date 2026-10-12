@@ -1,3 +1,5 @@
+import time
+
 from app.storage import etag
 
 RECIPE = "---\ntitle: Linsensuppe\n---\n\nCook @lentils{200%g}.\n".encode()
@@ -27,9 +29,11 @@ def test_create_read_and_list(client, auth_headers):
     assert got.headers["content-type"] == "text/plain; charset=utf-8"
     assert got.headers["ETag"] == etag(RECIPE)
 
-    assert client.get("/recipes").json() == {
-        "recipes": [{"path": "Suppen/Linsen", "title": "Linsensuppe", "etag": etag(RECIPE)}]
-    }
+    listed = client.get("/recipes").json()["recipes"]
+    assert len(listed) == 1
+    modified = listed[0].pop("modified")
+    assert listed[0] == {"path": "Suppen/Linsen", "title": "Linsensuppe", "etag": etag(RECIPE), "image": None}
+    assert isinstance(modified, int) and abs(modified / 1000 - time.time()) < 60
 
 
 def test_cook_suffix_and_unicode_paths(client, auth_headers):

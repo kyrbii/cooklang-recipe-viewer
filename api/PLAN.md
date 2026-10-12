@@ -19,10 +19,13 @@ Tested in the browser: list, login, edit and save, conflict dialog, forced overw
 | GET | `/recipes` | public | `{recipes: [{path, title, etag}]}`, sorted by path |
 | GET | `/recipe/{path}` | public | Raw `.cook` text, `ETag` header |
 | PUT | `/recipe/{path}` | token | Create or overwrite, raw text body, conflict check |
+| GET | `/recipe-photo/{path}` | public | Photo of a recipe (JPEG, PNG or WebP) |
+| PUT | `/recipe-photo/{path}` | token | Set the photo of an existing recipe, raw image body, max `MAX_PHOTO_BYTES` (10 MB). Replaces an earlier photo |
+| DELETE | `/recipe-photo/{path}` | token | Remove the photo, the recipe stays |
 | DELETE | `/recipe/{path}` | token | Delete. Needs `If-Match` like a save: 412 with the server version if it changed, 428 without it. Empty folders are removed |
 | POST | `/import` | token | AI import: `{url}`, `{text}` or `{image, mimeType}` → `{cooklang}` |
 
-Users are created only by `scripts/create_user.py`, removed by `scripts/delete_user.py` (admin) or `DELETE /account` (self-service). Images are out of scope for now.
+Users are created only by `scripts/create_user.py`, removed by `scripts/delete_user.py` (admin) or `DELETE /account` (self-service). Recipe photos are supported: one photo per recipe, stored next to the recipe.
 
 Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` missing or invalid token, `404` unknown recipe,
 `412` conflict, `413` body too large, `422` no recipe found or Instagram, `502` page or Gemini unreachable, `428` overwrite without `If-Match`, `429` too many failed logins.
@@ -41,6 +44,15 @@ Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` miss
 10. **Body limits:** `MAX_RECIPE_BYTES` (default 1 MB), must be valid UTF-8. Bytes are stored exactly as sent.
 11. **No parsing on the server** except the title for the list.
 12. **Single worker.** One global `asyncio.Lock` covers "check ETag, write". This is correct only with one worker process.
+
+## Recipe photos
+
+- Stored as a sidecar file with the recipe's name: `Baguette.cook` and `Baguette.jpg`. One photo per recipe; setting a new one replaces the old file, even if the extension changes.
+- The file type comes from the file signature (JPEG, PNG, WebP), never from the file name. Anything else gets `415`.
+- Photos can be replaced without `If-Match`: the last upload wins. Recipe text still uses the conflict check.
+- `GET /recipes` gives each recipe an `image` URL with a version (`recipe-photo/…?v=…`) that changes with the photo, so browsers don't show stale images. A photo overrides `>> image:` from the recipe text.
+- Deleting a recipe deletes its photo.
+- HEIC (iPhone default) is not accepted by the server. The app's file picker asks for JPEG, PNG or WebP.
 
 ## AI import
 

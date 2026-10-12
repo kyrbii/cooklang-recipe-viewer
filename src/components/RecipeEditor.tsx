@@ -23,7 +23,9 @@ import {
   Eye,
   CookingPot,
   Sparkles,
-  Lightbulb
+  Lightbulb,
+  Camera,
+  ImageOff
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe, StepItem } from '../types/cook';
 import { cookApi } from '../services/cookApi';
@@ -36,6 +38,8 @@ import {
 } from '../utils/cooklangParser';
 import { highlightCooklang } from '../utils/cooklangHighlight';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import { useLoginUser } from '../hooks/useLoginUser';
+import { shrinkPhoto } from '../utils/shrinkPhoto';
 
 interface RecipeEditorProps {
   recipe: Recipe;
@@ -45,6 +49,9 @@ interface RecipeEditorProps {
 }
 
 type Phase = 'loading' | 'blocked' | 'ready';
+/** A photo change waiting for "Speichern": a new file, or removing the current photo */
+type PendingPhoto = { kind: 'set'; file: File; previewUrl: string } | { kind: 'remove' } | null;
+
 type DraftNotice =
   | { kind: 'restored'; updatedAt: number }
   | { kind: 'stale'; draft: RecipeDraft }
@@ -69,6 +76,43 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
   onSaved
 }) => {
   const path = recipe.path;
+  const loginUser = useLoginUser();
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  // Photo changes are staged like text changes and only sent with "Speichern"
+  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto>(null);
+  // Recipe after a successful text save, kept when the photo upload failed and is retried
+  const savedRecipeRef = useRef<Recipe | null>(null);
+  const serverHasPhoto = Boolean(recipe.image?.startsWith('recipe-photo/'));
+  const hasPhoto = pendingPhoto ? pendingPhoto.kind === 'set' : serverHasPhoto;
+  // Only an uploaded or staged photo; the preview falls back to >> image: from the text itself
+  const shownPhoto =
+    pendingPhoto?.kind === 'set' ? pendingPhoto.previewUrl : pendingPhoto?.kind === 'remove' ? undefined : serverHasPhoto ? recipe.image : undefined;
+  const pendingPreviewUrl = pendingPhoto?.kind === 'set' ? pendingPhoto.previewUrl : null;
+
+  useEffect(() => {
+    if (!pendingPreviewUrl) return;
+    return () => URL.revokeObjectURL(pendingPreviewUrl);
+  }, [pendingPreviewUrl]);
+
+  const handlePhotoChosen = async (chosen: File | undefined) => {
+    if (photoInputRef.current) photoInputRef.current.value = '';
+    if (!chosen) return;
+    setPhotoError(null);
+    try {
+      // Scaled down to 1600 px before it is staged, so upload and later page loads stay small
+      const file = await shrinkPhoto(chosen);
+      setPendingPhoto({ kind: 'set', file, previewUrl: URL.createObjectURL(file) });
+    } catch (err: unknown) {
+      setPhotoError(err instanceof Error ? err.message : 'Das Foto konnte nicht gelesen werden.');
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoError(null);
+    // Removing a photo that was only staged just undoes the staging
+    setPendingPhoto(serverHasPhoto ? { kind: 'remove' } : null);
+  };
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -88,7 +132,8 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const isDirty = phase === 'ready' && content !== base;
+  const textDirty = phase === 'ready' && content !== base;
+  const isDirty = textDirty || (phase === 'ready' && pendingPhoto !== null);
   const isOffline = !online || status === 'disconnected' || status === 'error';
 
   // ---- Load the LIVE server version directly (never from offline cache) ----
@@ -184,26 +229,54 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
   const handleSave = useCallback(
     async (force = false) => {
       if (phase !== 'ready' || saving) return;
-      if (!force && content === base) return;
+      const textChanged = force || content !== base;
+      if (!textChanged && !pendingPhoto) return;
       setSaving(true);
       setSaveError(null);
-      const res = await cookApi.updateRecipe(path, content, base, { force });
-      setSaving(false);
+      setPhotoError(null);
 
-      if (res.status === 'saved') {
+      let saved: Recipe = savedRecipeRef.current ?? recipe;
+      if (textChanged) {
+        const res = await cookApi.updateRecipe(path, content, base, { force });
+        if (res.status === 'conflict') {
+          setSaving(false);
+          setConflict(res.serverContent);
+          setShowServerVersion(false);
+          return;
+        }
+        if (res.status === 'error') {
+          setSaving(false);
+          setSaveError(res.message);
+          const d = cookApi.saveDraft(path, base, content);
+          if (d) setDraftSavedAt(d.updatedAt);
+          return;
+        }
         cookApi.clearDraft(path);
         setConflict(null);
-        onSaved(res.recipe);
-      } else if (res.status === 'conflict') {
-        setConflict(res.serverContent);
-        setShowServerVersion(false);
-      } else {
-        setSaveError(res.message);
-        const d = cookApi.saveDraft(path, base, content);
-        if (d) setDraftSavedAt(d.updatedAt);
+        setBase(content);
+        saved = res.recipe;
+        savedRecipeRef.current = saved;
       }
+
+      if (pendingPhoto) {
+        const result =
+          pendingPhoto.kind === 'set'
+            ? await cookApi.uploadRecipePhoto(path, pendingPhoto.file)
+            : await cookApi.deleteRecipePhoto(path);
+        if (result.status === 'error') {
+          // The text may already be saved; the photo stays staged so "Speichern" retries only the photo
+          setSaving(false);
+          setPhotoError(textChanged ? `Der Text wurde gespeichert, das Foto nicht: ${result.message}` : result.message);
+          return;
+        }
+        saved = { ...saved, image: result.status === 'saved' ? result.image : undefined };
+        setPendingPhoto(null);
+      }
+
+      setSaving(false);
+      onSaved(saved);
     },
-    [phase, saving, content, base, path, onSaved]
+    [phase, saving, content, base, path, pendingPhoto, recipe, onSaved]
   );
 
   // ---- Close handling with unsaved confirmation ----
@@ -383,6 +456,41 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
             </h1>
           </div>
 
+          {/* Foto: nur im Bearbeitungsmodus, nur angemeldet */}
+          {loginUser && (
+            <>
+              {hasPhoto && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  disabled={saving}
+                  className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full text-stone-600 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 active:scale-95 transition disabled:opacity-50"
+                  title="Foto entfernen (wird beim Speichern übernommen)"
+                  aria-label="Foto entfernen"
+                >
+                  <ImageOff className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={saving}
+                className="h-10 px-3 shrink-0 rounded-full bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50"
+                title={`${hasPhoto ? 'Foto ersetzen' : 'Foto hinzufügen'} (wird beim Speichern übernommen)`}
+              >
+                <Camera className="w-4 h-4 text-[#DE5D4E]" />
+                <span className="hidden sm:inline">{hasPhoto ? 'Foto ersetzen' : 'Foto'}</span>
+              </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                className="hidden"
+                onChange={(e) => void handlePhotoChosen(e.target.files?.[0])}
+              />
+            </>
+          )}
+
           {/* Connection / Sync Status Chip */}
           <span
             className={`hidden min-[480px]:inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 ${chip.cls}`}
@@ -439,6 +547,12 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
         )}
       </header>
 
+      {photoError && (
+        <p role="alert" className="shrink-0 px-4 pt-3 text-xs text-rose-700 dark:text-rose-400 max-w-7xl mx-auto w-full">
+          {photoError}
+        </p>
+      )}
+
       {/* Notifications & Warning Banners */}
       {phase === 'ready' && (draftNotice || conflict || saveError || confirmClose) && (
         <div className="shrink-0 px-3 lg:px-6 pt-3 space-y-2 max-w-7xl mx-auto w-full">
@@ -449,8 +563,10 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
               </p>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">
                 Deine Änderungen wurden noch nicht an den Server übertragen. Was möchtest du tun?
+                {pendingPhoto && ' Die Foto-Änderung wird nicht als Entwurf aufgehoben.'}
               </p>
               <div className="flex flex-wrap gap-2 mt-3.5">
+                {textDirty && (
                 <button
                   id="editor-keep-draft"
                   onClick={keepDraftAndClose}
@@ -458,6 +574,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
                 >
                   Entwurf behalten & schließen
                 </button>
+                )}
                 <button
                   id="editor-discard"
                   onClick={discardAndClose}
@@ -780,7 +897,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
             <RecipePreview
               recipe={preview}
               fallbackName={recipe.name}
-              image={recipe.image}
+              image={shownPhoto}
             />
           </section>
         </div>
@@ -905,7 +1022,7 @@ const RecipePreview: React.FC<{
     : typeof recipe.metadata.tags === 'string'
     ? recipe.metadata.tags.split(',').map((t) => t.trim()).filter(Boolean)
     : [];
-  const img = recipe.image || image;
+  const img = image || recipe.image;
 
   return (
     <div className="max-w-2xl mx-auto px-5 lg:px-8 py-6 select-text">

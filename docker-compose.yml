@@ -1,0 +1,52 @@
+# App + API for a server behind Nginx Proxy Manager. Settings come from .env next to this file
+# (copy deploy.env.example to .env). Start with: docker compose up -d --build
+
+# Docker keeps container logs forever by default; cap them at 3 x 10 MB per container
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    build: ./api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Recipes, photos and the user database. Must be writable by uid 1000.
+      - ${DATA_DIR:-./api/data}:/data
+      # Target of scripts/backup.py. Must be writable by uid 1000.
+      - ${BACKUP_DIR:-./backups}:/backups
+    environment:
+      ALLOWED_ORIGINS: ${PUBLIC_APP_URL:?set PUBLIC_APP_URL in .env}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      TOKEN_TTL_DAYS: ${TOKEN_TTL_DAYS:-30}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  web:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in .env}
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:80"
+    environment:
+      # Allowed in the Content-Security-Policy, see docker/default.conf.template
+      API_ORIGIN: ${PUBLIC_API_URL}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *logging

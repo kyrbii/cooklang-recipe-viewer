@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { X, FileText, Sparkles, CheckCircle2, AlertCircle, Tag, Loader2 } from 'lucide-react';
-import { cookApi } from '../services/cookApi';
+import { cookApi, type ImportPayload } from '../services/cookApi';
 import type { Recipe } from '../types/cook';
 import { normalizeServerRecipe } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import type { ShareDraft } from '../utils/shareImport';
+import { slugify } from '../utils/recipeLink';
+import { shrinkPhoto } from '../utils/shrinkPhoto';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -64,7 +66,8 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     if (!nameUserEdited) {
       const extracted = extractTitleFromContent(newContent);
       if (extracted) {
-        setRecipeName(extracted);
+        // Dateiname vorschlagen: Titel als Slug (klein, Bindestriche). Der Nutzer kann ihn ändern.
+        setRecipeName(slugify(extracted));
       }
     }
   };
@@ -84,12 +87,12 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
-  // KI-Import: URL, Text oder Foto über den ai-import Dienst in Cooklang umwandeln
+  // KI-Import: URL, Text oder Foto über POST /import der API in Cooklang umwandeln
   const handleAiImport = async () => {
     setErrorMsg(null);
     setIsConverting(true);
     try {
-      let payload: Record<string, string>;
+      let payload: ImportPayload;
       if (aiMode === 'url') {
         if (!aiInput.trim()) throw new Error('Bitte gib eine Webseiten-URL ein.');
         payload = { url: aiInput.trim() };
@@ -101,17 +104,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         payload = { image: aiPhoto.data, mimeType: aiPhoto.mimeType };
       }
 
-      const res = await fetch(`${cookApi.getServerUrl().replace(/\/+$/, '')}/ai/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...cookApi.getAuthHeaders() },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || `Umwandlung fehlgeschlagen (HTTP ${res.status}).`);
-      }
-
-      handleContentChange(data.cooklang);
+      handleContentChange(await cookApi.importRecipe(payload));
       setActiveTab('text');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Umwandlung fehlgeschlagen.');
@@ -120,11 +113,18 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     }
   };
 
-  const handlePhotoChange = (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 8 * 1024 * 1024) {
-      setErrorMsg('Das Foto ist größer als 8 MB.');
-      return;
+  const handlePhotoChange = async (chosen: File | undefined) => {
+    if (!chosen) return;
+    let file = chosen;
+    try {
+      // 2000 px keeps small print readable for the AI and the upload well under the API limit
+      file = await shrinkPhoto(chosen, 2000, 0.9);
+    } catch {
+      // Not decodable here (e.g. HEIC outside Safari): send the original, the AI may still read it
+      if (chosen.size > 8 * 1024 * 1024) {
+        setErrorMsg('Das Foto ist größer als 8 MB.');
+        return;
+      }
     }
     const reader = new FileReader();
     reader.onload = () => {
@@ -151,7 +151,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
 
   const finalServerPath = recipeName.trim().replace(/\.cook$/i, '');
 
-  // Save recipe to Cook CLI server using official PUT endpoint
+  // Neues Rezept anlegen: PUT /recipe/{path}, überschreibt nie ein bestehendes
   const handleSaveRecipe = async () => {
     if (!recipeName.trim()) {
       setErrorMsg('Bitte gib einen Namen für das Rezept ein.');
@@ -166,7 +166,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     setIsSaving(true);
 
     try {
-      // Official Cook CLI endpoint: PUT /api/recipes/{*path} with raw .cook text
       const result = await cookApi.saveRecipeToServer(finalServerPath, cookContent);
 
       if (!result.success) {
@@ -206,7 +205,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               Rezept hinzufügen
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              Direkt auf deinem Cook CLI Server speichern
+              Direkt auf dem Rezept-Server speichern
             </p>
           </div>
           <button
@@ -369,7 +368,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/heic"
-                    onChange={(e) => handlePhotoChange(e.target.files?.[0])}
+                    onChange={(e) => void handlePhotoChange(e.target.files?.[0])}
                     className="block w-full text-xs text-stone-600 dark:text-stone-400 file:mr-3 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-stone-200 dark:file:bg-stone-800 file:text-stone-800 dark:file:text-stone-200 file:font-semibold"
                   />
                   {aiPhoto && (
@@ -397,6 +396,9 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               </button>
               <p className="text-[11px] text-stone-400 dark:text-stone-500">
                 Das Ergebnis erscheint im Reiter „Cooklang Text“, dort kannst du es vor dem Speichern prüfen.
+              </p>
+              <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                Zur Umwandlung wird der Inhalt an Google (Gemini) gesendet. Mehr dazu unter Einstellungen → Datenschutz.
               </p>
             </div>
           )}
@@ -483,12 +485,12 @@ Mit @Gemüsebrühe{500%ml} ablöschen und für ~{15%min} köcheln lassen.`}
             {isSaving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Wird auf Cook Server gespeichert...</span>
+                <span>Wird gespeichert...</span>
               </>
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Auf Cook Server speichern</span>
+                <span>Auf Server speichern</span>
               </>
             )}
           </button>

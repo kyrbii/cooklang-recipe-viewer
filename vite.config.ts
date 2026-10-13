@@ -16,9 +16,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-maskable.svg'],
       manifest: {
-        name: 'Rezepte',
-        short_name: 'Rezepte',
-        description: 'Mobile-first PWA für Cooklang Rezepte',
+        name: 'stir',
+        short_name: 'stir',
+        description: 'stir – deine Rezepte in Cooklang',
         theme_color: '#FAF8F5',
         background_color: '#FAF8F5',
         display: 'standalone',
@@ -44,7 +44,17 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}']
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // config.js is written per installation when the container starts, so it must not be
+        // precached with the build's version. Network first, the cached copy only when offline.
+        globIgnores: ['config.js'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname === '/config.js',
+            handler: 'NetworkFirst',
+            options: { cacheName: 'stir-config', networkTimeoutSeconds: 3 }
+          }
+        ]
       }
     })
   ]

@@ -3,18 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Rezepte</title>
+    <title>stir</title>
     
     <!-- PWA & Mobile Meta Tags -->
-    <meta name="description" content="Eleganter Rezept-Reader für Cooklang" />
+    <meta name="description" content="stir – deine Rezepte in Cooklang" />
     <meta name="theme-color" content="#FAF8F5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Rezepte" />
+    <meta name="apple-mobile-web-app-title" content="stir" />
     <meta name="format-detection" content="telephone=no" />
+    <meta name="robots" content="noindex, nofollow" />
 
     <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
     <link rel="apple-touch-icon" href="/pwa-icon.svg" />
@@ -26,6 +27,8 @@
   </head>
   <body class="bg-[#FAF8F5] text-stone-900 dark:bg-[#121110] dark:text-stone-100 min-h-screen antialiased select-none transition-colors duration-200">
     <div id="root"></div>
+    <!-- API URL of this installation, written by the container at startup (see src/config.ts) -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

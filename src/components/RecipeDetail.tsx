@@ -394,9 +394,9 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
       )}
 
       {/* Main Content Area: Unified page scroll, 2 columns on desktop (lg:) with Ingredients on the RIGHT */}
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 flex flex-col lg:grid lg:grid-cols-12 lg:gap-10 xl:gap-14 lg:items-start">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 flex flex-col lg:grid lg:grid-cols-12 lg:items-stretch">
         {/* Left Column (Desktop): Image + Title + Description + Metadata + Instructions/Steps */}
-        <div className="contents lg:block lg:col-span-7 xl:col-span-8 space-y-8">
+        <div className="contents lg:block lg:col-span-7 xl:col-span-8 lg:pr-10 xl:pr-14 space-y-8">
           {/* Header Presentation Block: Image, Title, Description, Times */}
           <div className="order-1 lg:order-none space-y-4">
             {/* Dish Photo */}
@@ -587,7 +587,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
         {/* Right Column (Desktop): Ingredients & Portions scaler on the right (natural continuous scroll) */}
         <div className="contents lg:block lg:col-span-5 xl:col-span-4">
-          <div className="order-2 lg:order-none space-y-5 pt-4 lg:pt-0 lg:bg-stone-100/60 dark:lg:bg-stone-900/50 lg:p-6 lg:rounded-3xl lg:border lg:border-stone-200/70 dark:lg:border-stone-800/80">
+          <div className="order-2 lg:order-none space-y-5 pt-4 lg:pt-0 lg:pl-10 xl:pl-14 lg:border-l lg:border-stone-200 dark:lg:border-stone-800">
             {/* Ingredients Header */}
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-1 border-b border-stone-200/70 dark:border-stone-800/80">
               <div className="flex items-baseline gap-2">

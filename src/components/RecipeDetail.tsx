@@ -643,6 +643,14 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                       {ratioLabel}x
                     </span>
                   )}
+                  {ratio !== 1 && (
+                    <button
+                      onClick={() => setCurrentServings(baseServings)}
+                      className="text-xs text-[#DE5D4E] font-medium ml-1 hover:underline cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
                 <span className="text-[11px] text-stone-400 block mt-0.5">
                   Basis: {baseServings} Portionen
@@ -670,15 +678,6 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
-
-                {ratio !== 1 && (
-                  <button
-                    onClick={() => setCurrentServings(baseServings)}
-                    className="text-xs text-[#DE5D4E] font-medium ml-1 hover:underline cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                )}
               </div>
             </div>
 

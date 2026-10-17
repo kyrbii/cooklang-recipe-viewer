@@ -1,7 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import wasmModule from 'vite-plugin-wasm'
+
+// The package ships CommonJS typings, at runtime the import is the plugin function itself
+const wasm = ((wasmModule as { default?: unknown }).default ?? wasmModule) as () => PluginOption
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -10,6 +14,7 @@ export default defineConfig({
     allowedHosts: true
   },
   plugins: [
+    wasm(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -44,7 +49,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
         // config.js is written per installation when the container starts, so it must not be
         // precached with the build's version. Network first, the cached copy only when offline.
         globIgnores: ['config.js'],

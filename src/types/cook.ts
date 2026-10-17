@@ -13,18 +13,39 @@ export interface CookMetadata {
 }
 
 export interface CookIngredient {
+  /** Name as written; ingredients with the same name are listed together */
   name: string;
+  /** Display name from `@name|alias{}`, shown instead of `name` */
+  alias?: string;
+  /** A number, or a string for fractions ("1/2"), ranges ("1-2") and free text */
   quantity?: number | string;
   units?: string;
+  /** Preparation note from `@name{1}(finely diced)` */
+  note?: string;
   optional?: boolean;
+  /** `@name{=1%tsp}`: the amount does not change when scaling the servings */
+  fixed?: boolean;
+  /** `@-name`: used in the steps, but not listed under the ingredients */
+  hidden?: boolean;
+  /** `@+name`: a new ingredient that is not merged with earlier ones of the same name */
+  isNew?: boolean;
+  /** `@&name`: refers back to an ingredient defined earlier */
+  isReference?: boolean;
+  /** `@./path/Recipe{}`: path of the referenced recipe without `.cook` */
+  recipePath?: string;
+  /** Name of the referenced recipe this ingredient was taken from, set when the list is expanded */
+  fromRecipe?: string;
   /** Einzelmengen, aus denen eine zusammengefasste Zutat entstanden ist */
   sources?: Array<{ quantity?: number | string; units?: string }>;
 }
 
 export interface CookCookware {
   name: string;
+  alias?: string;
   quantity?: number | string;
+  note?: string;
   optional?: boolean;
+  hidden?: boolean;
 }
 
 export interface CookTimer {
@@ -44,11 +65,21 @@ export interface StepItem {
   units?: string;
   totalSeconds?: number;
   optional?: boolean;
+  alias?: string;
+  note?: string;
+  fixed?: boolean;
+  hidden?: boolean;
+  isReference?: boolean;
+  recipePath?: string;
 }
 
 export interface CookStep {
   stepNumber: number;
   section?: string;
+  /** Notes (`> text`) that stand right before this step */
+  notesBefore?: string[];
+  /** Notes that stand after the last step */
+  notesAfter?: string[];
   items: StepItem[];
   rawText: string;
   ingredients: CookIngredient[];
@@ -71,8 +102,15 @@ export interface Recipe {
   sections?: CookSection[];
   ingredients: CookIngredient[];
   cookware: CookCookware[];
+  /** Tips from the metadata (`notes:`, `tips:`). Notes written as `> text` belong to the steps. */
   notes?: string[];
   rawCook?: string;
+  /** Version of the parser setup that produced this object, older cached copies are parsed again */
+  parserVersion?: number;
+  /** Parser report for the recipe text (warnings, or the error that made it unreadable), plain text */
+  diagnostics?: string;
+  /** True when the text has an error and the recipe is only shown as plain text */
+  hasError?: boolean;
   image?: string;
   cachedAt?: number;
   /** Server version of the recipe file (ETag), used to skip unchanged recipes and for If-Match */

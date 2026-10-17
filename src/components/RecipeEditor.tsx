@@ -33,11 +33,12 @@ import type { RecipeDraft } from '../types/cook';
 import {
   aggregateIngredients,
   parseCooklangText,
-  parseStepText,
   sortIngredientsByQuantity
 } from '../utils/cooklangParser';
 import { highlightCooklang } from '../utils/cooklangHighlight';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import { RecipeRefLink } from './RecipeRefLink';
+import { StepNote } from './StepNote';
 import { useLoginUser } from '../hooks/useLoginUser';
 import { shrinkPhoto } from '../utils/shrinkPhoto';
 
@@ -1036,6 +1037,26 @@ const RecipePreview: React.FC<{
         </span>
       </div>
 
+      {recipe.diagnostics && (
+        <details
+          open={recipe.hasError}
+          className={`mb-3 rounded-xl border px-3 py-2 text-xs ${
+            recipe.hasError
+              ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200'
+              : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200'
+          }`}
+        >
+          <summary className="cursor-pointer font-semibold select-none">
+            {recipe.hasError
+              ? 'Der Rezepttext hat einen Fehler, die Vorschau zeigt nur Text'
+              : 'Hinweise des Cooklang-Parsers'}
+          </summary>
+          <pre className="mt-2 max-h-40 overflow-auto custom-scroll whitespace-pre-wrap font-mono text-[11px] leading-relaxed select-text">
+            {recipe.diagnostics}
+          </pre>
+        </details>
+      )}
+
       <div className="flex items-center gap-4">
         {img && (
           <AuthenticatedImage
@@ -1098,7 +1119,7 @@ const RecipePreview: React.FC<{
             {ingredients.map((ing, i) => {
               const isOptional = Boolean(ing.optional || ing.name.startsWith('?'));
               const cleanName = ing.name.replace(/^\?+\s*/, '').trim();
-              const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
+              const label = `${ing.alias || cleanName}${isOptional ? ' (optional)' : ''}`;
               return (
                 <li
                   key={`${cleanName}_${i}`}
@@ -1113,7 +1134,10 @@ const RecipePreview: React.FC<{
                           .join(' ')}
                       </span>
                     )}
-                    {displayName}
+                    {ing.recipePath ? <RecipeRefLink path={ing.recipePath}>{label}</RecipeRefLink> : label}
+                    {ing.note && (
+                      <span className="ml-1.5 text-xs text-stone-500 dark:text-stone-400"> ({ing.note})</span>
+                    )}
                     {ing.sources && ing.sources.length > 1 && (
                       <span className="ml-1.5 text-xs text-stone-400 dark:text-stone-500">
                         ({ing.sources
@@ -1141,7 +1165,9 @@ const RecipePreview: React.FC<{
                 key={i}
                 className="px-2.5 py-1 rounded-md bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300"
               >
-                {cleanName}{isOptional ? ' (optional)' : ''}
+                {cw.quantity !== undefined && cw.quantity !== '' ? `${cw.quantity}× ` : ''}
+                {cw.alias || cleanName}{isOptional ? ' (optional)' : ''}
+                {cw.note ? ` (${cw.note})` : ''}
               </span>
             );
           })}
@@ -1167,13 +1193,17 @@ const RecipePreview: React.FC<{
                 )}
                 <ol className="space-y-3">
                   {group.steps.map((step) => (
-                    <li key={step.stepNumber} className="flex gap-3">
+                    <li key={step.stepNumber} className="space-y-2">
+                      {step.notesBefore && <StepNote notes={step.notesBefore} compact />}
+                      <div className="flex gap-3">
                       <span className="font-mela-serif text-base font-bold text-stone-400 dark:text-stone-500 w-5 shrink-0">
                         {step.stepNumber}
                       </span>
-                      <p className="text-[14.5px] leading-relaxed text-stone-800 dark:text-stone-200 flex-1">
+                      <p className="text-[14.5px] leading-relaxed text-stone-800 dark:text-stone-200 flex-1 whitespace-pre-line">
                         {step.items.map((item, idx) => renderPreviewItem(item, idx))}
                       </p>
+                      </div>
+                      {step.notesAfter && <StepNote notes={step.notesAfter} compact />}
                     </li>
                   ))}
                 </ol>
@@ -1198,7 +1228,7 @@ const RecipePreview: React.FC<{
                 key={idx}
                 className="p-3 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 dark:border-amber-500/30 text-xs sm:text-sm leading-relaxed text-stone-800 dark:text-stone-200"
               >
-                {parseStepText(note).items.map((it, itIdx) => renderPreviewItem(it, itIdx))}
+                <span className="whitespace-pre-line">{note}</span>
               </div>
             ))}
           </div>
@@ -1216,21 +1246,24 @@ function renderPreviewItem(item: StepItem, idx: number) {
       .join(' ');
     const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
     const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
-    const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
+    const label = `${item.alias || cleanName}${isOptional ? ' (optional)' : ''}`;
     return (
       <span key={idx} className="font-semibold text-[#DE5D4E] dark:text-[#f87a6c]">
         {amount ? `${amount} ` : ''}
-        {displayName}
+        {item.recipePath ? <RecipeRefLink path={item.recipePath}>{label}</RecipeRefLink> : label}
+        {item.note && <span className="font-normal opacity-70"> ({item.note})</span>}
       </span>
     );
   }
   if (item.type === 'cookware') {
     const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
     const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
-    const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
+    const label = `${item.alias || cleanName}${isOptional ? ' (optional)' : ''}`;
     return (
       <span key={idx} className="font-medium text-amber-700 dark:text-amber-300">
-        {displayName}
+        {item.quantity !== undefined && item.quantity !== '' ? `${item.quantity}× ` : ''}
+        {label}
+        {item.note && <span className="font-normal opacity-70"> ({item.note})</span>}
       </span>
     );
   }
@@ -1241,6 +1274,7 @@ function renderPreviewItem(item: StepItem, idx: number) {
         className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-sky-700 dark:text-sky-300 align-baseline bg-sky-100 dark:bg-sky-950/60 px-1.5 py-0.5 rounded"
       >
         <Clock className="w-3 h-3 text-sky-600" />
+        {item.name ? `${item.name} ` : ''}
         {String(item.quantity)} {item.units}
       </span>
     );

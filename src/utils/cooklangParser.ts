@@ -1,3 +1,4 @@
+import { Parser } from '@cooklang/cooklang';
 import type {
   CookCookware,
   CookIngredient,
@@ -8,8 +9,29 @@ import type {
   StepItem
 } from '../types/cook';
 
+/*
+ * Cooklang text is parsed by the official parser (cooklang-rs, WASM build). This file turns its
+ * result into the Recipe shape the app uses and holds the quantity helpers (scaling, formatting,
+ * merging ingredients).
+ */
+
+const UNICODE_FRACTIONS: Record<string, number> = {
+  '¼': 1 / 4,
+  '½': 1 / 2,
+  '¾': 3 / 4,
+  '⅓': 1 / 3,
+  '⅔': 2 / 3,
+  '⅛': 1 / 8,
+  '⅜': 3 / 8,
+  '⅝': 5 / 8,
+  '⅞': 7 / 8
+};
+
+const UNICODE_FRACTION_RE = /^(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])$/;
+
 /**
- * Converts quantity representation (number, string fraction, decimal) to a number
+ * Converts a quantity (number, fraction, decimal with point or comma) to a number.
+ * Ranges and free text give null.
  */
 export function parseQuantity(raw: unknown): number | null {
   if (typeof raw === 'number') {
@@ -20,28 +42,50 @@ export function parseQuantity(raw: unknown): number | null {
   const str = raw.trim();
   if (!str) return null;
 
-  // Handle mixed fractions like "1 1/2"
-  if (str.includes(' ') && str.includes('/')) {
-    const parts = str.split(' ');
-    if (parts.length === 2) {
-      const whole = parseFloat(parts[0]);
-      const [num, den] = parts[1].split('/').map(Number);
-      if (!isNaN(whole) && !isNaN(num) && !isNaN(den) && den !== 0) {
-        return whole + num / den;
-      }
-    }
+  const unicode = str.match(UNICODE_FRACTION_RE);
+  if (unicode) {
+    return Number(unicode[1] ?? 0) + UNICODE_FRACTIONS[unicode[2]];
   }
 
-  // Handle simple fractions like "1/2" or "3/4"
-  if (str.includes('/')) {
-    const [num, den] = str.split('/').map(Number);
-    if (!isNaN(num) && !isNaN(den) && den !== 0) {
-      return num / den;
-    }
+  // Mixed fractions like "1 1/2"
+  const mixed = str.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixed) {
+    const den = Number(mixed[3]);
+    return den === 0 ? null : Number(mixed[1]) + Number(mixed[2]) / den;
   }
 
-  const num = parseFloat(str);
-  return isNaN(num) ? null : num;
+  // Simple fractions like "1/2" or "3/4"
+  const fraction = str.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fraction) {
+    const den = Number(fraction[2]);
+    return den === 0 ? null : Number(fraction[1]) / den;
+  }
+
+  // Decimals, "1.5" as well as "1,5"
+  if (/^\d+([.,]\d+)?$/.test(str)) {
+    return Number(str.replace(',', '.'));
+  }
+
+  return null;
+}
+
+/** The number a text starts with, "6 portions" gives 6. For servings, which may carry a unit. */
+export function parseLeadingNumber(raw: unknown): number | null {
+  const whole = parseQuantity(raw);
+  if (whole !== null) return whole;
+  if (typeof raw !== 'string') return null;
+  const lead = raw.trim().match(/^(\d+\s+\d+\s*\/\s*\d+|\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?)/);
+  return lead ? parseQuantity(lead[1]) : null;
+}
+
+/** Both ends of a range such as "1-2" or "200 – 250", null for everything else */
+export function parseQuantityRange(raw: unknown): [number, number] | null {
+  if (typeof raw !== 'string') return null;
+  const match = raw.trim().match(/^(.+?)\s*[-–]\s*(.+)$/);
+  if (!match) return null;
+  const start = parseQuantity(match[1]);
+  const end = parseQuantity(match[2]);
+  return start === null || end === null ? null : [start, end];
 }
 
 /**
@@ -88,45 +132,214 @@ export function formatQuantity(num: number | null | undefined): string {
 }
 
 /**
- * Scale an ingredient quantity given a ratio
+ * Scale an ingredient quantity given a ratio. Ranges scale at both ends, free text stays as
+ * written, and a fixed quantity (`@salt{=1%tsp}`) is not scaled at all.
  */
 export function scaleQuantity(
   rawQty: number | string | undefined,
-  ratio: number
+  ratio: number,
+  fixed = false
 ): string {
   if (rawQty === undefined || rawQty === null || rawQty === '') return '';
+  const factor = fixed ? 1 : ratio;
+
+  const range = parseQuantityRange(rawQty);
+  if (range) {
+    return `${formatQuantity(range[0] * factor)}-${formatQuantity(range[1] * factor)}`;
+  }
+
   const num = parseQuantity(rawQty);
   if (num === null) return String(rawQty);
-  const scaled = num * ratio;
-  return formatQuantity(scaled);
+  return formatQuantity(num * factor);
 }
 
 /**
- * Fasst gleiche Zutaten (Name + Einheit) zu einer Zeile zusammen und addiert die Mengen.
- * Fehlt eine Menge, wird die andere übernommen. Unterschiedliche Einheiten bleiben getrennt.
+ * Multiplies a quantity by a factor without rounding it to kitchen fractions.
+ * Ranges are multiplied at both ends, free text stays as written, a fixed quantity stays as is.
+ */
+export function multiplyQuantity(
+  rawQty: number | string | undefined,
+  factor: number,
+  fixed = false
+): number | string | undefined {
+  if (rawQty === undefined || rawQty === '' || fixed || factor === 1) return rawQty;
+  const range = parseQuantityRange(rawQty);
+  if (range) return `${formatQuantity(range[0] * factor)}-${formatQuantity(range[1] * factor)}`;
+  const num = parseQuantity(rawQty);
+  return num === null ? rawQty : Math.round(num * factor * 1000) / 1000;
+}
+
+/** What follows the number in `servings: 6 portions`, undefined when there is only a number */
+export function servingsUnit(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const rest = raw
+    .trim()
+    .replace(/^(\d+\s+\d+\s*\/\s*\d+|\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?)/, '')
+    .trim();
+  return rest || undefined;
+}
+
+/** The name to show for an ingredient or cookware: the alias if there is one */
+export function displayName(item: { name: string; alias?: string }): string {
+  return item.alias || item.name;
+}
+
+interface UnitInfo {
+  family: 'mass' | 'volume' | 'spoon' | 'mass-imperial';
+  /** How many base units one of this unit is (g, ml, teaspoons, oz) */
+  factor: number;
+}
+
+const UNIT_TABLE: Array<[string[], UnitInfo]> = [
+  [['mg'], { family: 'mass', factor: 0.001 }],
+  [['g', 'gr', 'gramm', 'gram', 'grams'], { family: 'mass', factor: 1 }],
+  [['kg', 'kilo', 'kilogramm', 'kilogram'], { family: 'mass', factor: 1000 }],
+  [['ml', 'milliliter', 'millilitre'], { family: 'volume', factor: 1 }],
+  [['cl', 'zentiliter'], { family: 'volume', factor: 10 }],
+  [['dl', 'deziliter'], { family: 'volume', factor: 100 }],
+  [['l', 'liter', 'litre', 'ltr'], { family: 'volume', factor: 1000 }],
+  [['tsp', 'teaspoon', 'teaspoons', 'tl', 'teelöffel'], { family: 'spoon', factor: 1 }],
+  [['tbsp', 'tablespoon', 'tablespoons', 'el', 'esslöffel'], { family: 'spoon', factor: 3 }],
+  [['oz', 'ounce', 'ounces'], { family: 'mass-imperial', factor: 1 }],
+  [['lb', 'lbs', 'pound', 'pounds'], { family: 'mass-imperial', factor: 16 }]
+];
+
+const normalizeUnit = (unit: string | undefined) => (unit || '').trim().toLowerCase().replace(/\.$/, '');
+
+/** Weight and volume units that can be added up: g with kg, ml with l, TL with EL. Others give null. */
+export function unitInfo(unit: string | undefined): UnitInfo | null {
+  const u = normalizeUnit(unit);
+  if (!u) return null;
+  return UNIT_TABLE.find(([names]) => names.includes(u))?.[1] ?? null;
+}
+
+/** Writes a sum in base units back as quantity and unit, kg instead of 1500 g and so on */
+function fromBaseUnits(family: UnitInfo['family'], base: number, smallestUnit: string): { quantity: number; units: string } {
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  if (family === 'mass') {
+    if (base >= 1000) return { quantity: round(base / 1000), units: 'kg' };
+    if (base < 1) return { quantity: round(base * 1000), units: 'mg' };
+    return { quantity: round(base), units: 'g' };
+  }
+  if (family === 'volume') {
+    if (base >= 1000) return { quantity: round(base / 1000), units: 'l' };
+    return { quantity: round(base), units: 'ml' };
+  }
+  if (family === 'mass-imperial') {
+    if (base >= 16) return { quantity: round(base / 16), units: 'lb' };
+    return { quantity: round(base), units: 'oz' };
+  }
+  // Spoons keep the smaller of the units that were used, so 1 EL and 1 TL make 4 TL
+  const info = unitInfo(smallestUnit);
+  return { quantity: round(base / (info?.factor ?? 1)), units: smallestUnit };
+}
+
+/**
+ * Fasst gleiche Zutaten zu einer Zeile zusammen und addiert die Mengen.
+ * Gleiche Einheiten werden addiert, Gewichte und Volumen auch über Einheiten hinweg (g und kg,
+ * ml und l, TL und EL). Fehlt eine Menge, wird die andere übernommen.
+ * Getrennt bleiben: andere Einheiten, optionale und feste Mengen, Bereiche und Freitext-Mengen,
+ * neue Zutaten (`@+`) und Zutaten mit unterschiedlichem Alias. Zubereitungshinweise werden gesammelt.
  */
 export function aggregateIngredients(list: CookIngredient[]): CookIngredient[] {
   const sourcesOf = (ing: CookIngredient) =>
     ing.sources ?? (parseQuantity(ing.quantity) !== null ? [{ quantity: ing.quantity, units: ing.units }] : []);
 
-  const map = new Map<string, CookIngredient>();
-  for (const ing of list) {
-    const name = ing.name.replace(/^\?+\s*/, '').trim();
-    const unit = (ing.units || '').trim().toLowerCase();
-    const key = `${name.toLowerCase()}|${unit}|${ing.optional ? 'opt' : 'req'}`;
-
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, { ...ing, name });
-      continue;
-    }
-    const added = parseQuantity(ing.quantity);
-    if (added === null) continue;
-    existing.sources = [...sourcesOf(existing), ...sourcesOf(ing)];
-    const current = parseQuantity(existing.quantity);
-    existing.quantity = current === null ? added : current + added;
+  interface Entry {
+    ing: CookIngredient;
+    alias: string;
+    family?: UnitInfo['family'];
+    base: number;
+    unitsUsed: Set<string>;
+    smallest?: { unit: string; factor: number };
+    hasBase: boolean;
   }
-  return Array.from(map.values());
+
+  const entries: Entry[] = [];
+  const byKey = new Map<string, Entry[]>();
+
+  list.forEach((ing, idx) => {
+    const name = ing.name.trim();
+    const hasQuantity = ing.quantity !== undefined && ing.quantity !== '';
+    const num = parseQuantity(ing.quantity);
+    const addable = !hasQuantity || num !== null;
+    const info = hasQuantity && num !== null ? unitInfo(ing.units) : null;
+    const unitKey = info ? `fam:${info.family}` : normalizeUnit(ing.units);
+    const alias = (ing.alias || '').trim().toLowerCase();
+    const key = [
+      name.toLowerCase(),
+      unitKey,
+      ing.optional ? 'opt' : 'req',
+      ing.fixed ? 'fixed' : 'scaled',
+      addable ? '' : `own${idx}`,
+      ing.isNew ? `new${idx}` : ''
+    ].join('|');
+
+    const candidates = byKey.get(key) ?? [];
+    // Same alias, or one side without alias: the same ingredient
+    const existing = candidates.find((e) => e.alias === alias || !alias || !e.alias);
+
+    const note = ing.note?.trim();
+    if (!existing) {
+      const entry: Entry = {
+        ing: { ...ing, name },
+        alias,
+        family: info?.family,
+        base: 0,
+        unitsUsed: new Set(),
+        hasBase: false
+      };
+      if (info && num !== null) {
+        entry.base = num * info.factor;
+        entry.hasBase = true;
+        entry.unitsUsed.add(normalizeUnit(ing.units));
+        entry.smallest = { unit: ing.units!.trim(), factor: info.factor };
+      }
+      entries.push(entry);
+      byKey.set(key, [...candidates, entry]);
+      return;
+    }
+
+    const target = existing.ing;
+    if (!target.alias && ing.alias) target.alias = ing.alias;
+    if (note && !(target.note ?? '').split('; ').includes(note)) {
+      target.note = target.note ? `${target.note}; ${note}` : note;
+    }
+    if (num === null) return;
+    target.sources = [...sourcesOf(target), ...sourcesOf(ing)];
+
+    if (info) {
+      if (!existing.hasBase) {
+        // The first mention had no amount, the amount of this one is the start
+        existing.hasBase = true;
+        existing.base = num * info.factor;
+        target.units = ing.units;
+        target.quantity = num;
+        existing.family = info.family;
+        existing.smallest = { unit: ing.units!.trim(), factor: info.factor };
+      } else {
+        existing.base += num * info.factor;
+        if (info.factor < (existing.smallest?.factor ?? Infinity)) {
+          existing.smallest = { unit: ing.units!.trim(), factor: info.factor };
+        }
+        target.quantity = parseQuantity(target.quantity)! + num * (info.factor / (unitInfo(target.units)?.factor ?? info.factor));
+      }
+      existing.unitsUsed.add(normalizeUnit(ing.units));
+    } else {
+      const current = parseQuantity(target.quantity);
+      target.quantity = current === null ? num : current + num;
+    }
+  });
+
+  // Mixed units of one family are written in a fitting unit
+  for (const e of entries) {
+    if (e.family && e.unitsUsed.size > 1) {
+      const out = fromBaseUnits(e.family, e.base, e.smallest?.unit ?? '');
+      e.ing.quantity = out.quantity;
+      e.ing.units = out.units;
+    }
+  }
+  return entries.map((e) => e.ing);
 }
 
 /**
@@ -135,20 +348,25 @@ export function aggregateIngredients(list: CookIngredient[]): CookIngredient[] {
  * Innerhalb einer Gruppe: größte Menge zuerst, ohne Menge ganz unten.
  */
 export function sortIngredientsByQuantity(list: CookIngredient[]): CookIngredient[] {
-  const nameKey = (ing: CookIngredient) => ing.name.replace(/^\?+\s*/, '').trim().toLowerCase();
+  const nameKey = (ing: CookIngredient) => ing.name.trim().toLowerCase();
+  // Ranges sort by their upper end
+  const sortQuantity = (ing: CookIngredient) => {
+    const range = parseQuantityRange(ing.quantity);
+    return range ? range[1] : parseQuantity(ing.quantity);
+  };
 
   const groupBest = new Map<string, number | null>();
   const groupFirst = new Map<string, number>();
   list.forEach((ing, idx) => {
     const key = nameKey(ing);
     if (!groupFirst.has(key)) groupFirst.set(key, idx);
-    const qty = parseQuantity(ing.quantity);
+    const qty = sortQuantity(ing);
     const current = groupBest.get(key) ?? null;
     groupBest.set(key, current === null ? qty : qty === null ? current : Math.max(current, qty));
   });
 
   return list
-    .map((ing, idx) => ({ ing, idx, key: nameKey(ing), qty: parseQuantity(ing.quantity) }))
+    .map((ing, idx) => ({ ing, idx, key: nameKey(ing), qty: sortQuantity(ing) }))
     .sort((a, b) => {
       if (a.key !== b.key) {
         const bestA = groupBest.get(a.key) ?? null;
@@ -167,543 +385,490 @@ export function sortIngredientsByQuantity(list: CookIngredient[]): CookIngredien
     .map((x) => x.ing);
 }
 
+const UNIT_SECONDS: Array<[RegExp, number]> = [
+  [/^(s|sec|secs|second|seconds|sek|sekunde|sekunden)$/, 1],
+  [/^(m|min|mins|minute|minutes|minuten)$/, 60],
+  [/^(h|hr|hrs|hour|hours|std|stunde|stunden)$/, 3600],
+  [/^(d|day|days|tag|tage|tagen)$/, 86400],
+  [/^(w|week|weeks|woche|wochen)$/, 604800]
+];
+
 /**
- * Parse timer unit to seconds
+ * Parse timer unit to seconds. Unknown units count as minutes.
  */
 export function unitToSeconds(unitStr: string, qty: number): number {
-  const u = unitStr.toLowerCase().trim();
-  if (u.startsWith('s')) {
-    return Math.round(qty);
-  }
-  if (u.startsWith('h')) {
-    return Math.round(qty * 3600);
-  }
-  // Default to minutes
-  return Math.round(qty * 60);
+  const u = unitStr.toLowerCase().trim().replace(/\.$/, '');
+  const match = UNIT_SECONDS.find(([re]) => re.test(u));
+  return Math.round(qty * (match ? match[1] : 60));
 }
 
-/**
- * Minimal YAML front matter reader (key: value, inline [a, b] lists and "- item" lists)
- */
-function parseFrontMatter(yaml: string, metadata: CookMetadata): void {
-  const stripQuotes = (v: string) => v.trim().replace(/^(['"])(.*)\1$/, '$2');
-  let listKey: string | null = null;
+// ---------------------------------------------------------------------------------------------
+// Official parser output
+// ---------------------------------------------------------------------------------------------
 
-  for (const rawLine of yaml.split(/\r?\n/)) {
-    if (!rawLine.trim() || rawLine.trim().startsWith('#')) continue;
+type WasmNumber =
+  | { type: 'regular'; value: number }
+  | { type: 'fraction'; value: { whole: number; num: number; den: number } };
 
-    const listItem = rawLine.match(/^\s+-\s+(.*)$/) || rawLine.match(/^-\s+(.*)$/);
-    if (listItem && listKey) {
-      const current = Array.isArray(metadata[listKey]) ? (metadata[listKey] as string[]) : [];
-      metadata[listKey] = [...current, stripQuotes(listItem[1])];
-      continue;
-    }
+type WasmValue =
+  | { type: 'number'; value: WasmNumber }
+  | { type: 'range'; value: { start: WasmNumber; end: WasmNumber } }
+  | { type: 'text'; value: string };
 
-    const kv = rawLine.match(/^([^:#][^:]*):\s*(.*)$/);
-    if (!kv) continue;
-    const key = kv[1].trim().toLowerCase();
-    const value = kv[2].trim();
-
-    if (value === '') {
-      listKey = key;
-      continue;
-    }
-    listKey = null;
-
-    if (value.startsWith('[') && value.endsWith(']')) {
-      metadata[key] = value
-        .slice(1, -1)
-        .split(',')
-        .map(stripQuotes)
-        .filter(Boolean);
-    } else if ((key === 'tags' || key === 'tag') && value.includes(',')) {
-      metadata.tags = value.split(',').map(stripQuotes).filter(Boolean);
-    } else {
-      metadata[key] = stripQuotes(value);
-    }
-  }
-
-  if (metadata.tag && !metadata.tags) {
-    metadata.tags = metadata.tag as string[] | string;
-  }
-  if (metadata['prep time'] && !metadata.prep_time) metadata.prep_time = String(metadata['prep time']);
-  if (metadata['cook time'] && !metadata.cook_time) metadata.cook_time = String(metadata['cook time']);
-  if (metadata['time required'] && !metadata.time) metadata.time = String(metadata['time required']);
+interface WasmQuantity {
+  value: WasmValue;
+  unit: string | null;
+  scalable: boolean;
 }
 
-/**
- * Parse a raw .cook formatted file
- */
-export function parseCooklangText(content: string, path: string): Recipe {
-  const metadata: CookMetadata = {};
-  let body = content.replace(/^\uFEFF/, '');
+interface WasmComponent {
+  name: string;
+  alias: string | null;
+  quantity: WasmQuantity | null;
+  note: string | null;
+  modifiers: string;
+}
 
-  // YAML front matter (--- ... ---)
-  const frontMatter = body.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
-  if (frontMatter) {
-    parseFrontMatter(frontMatter[1], metadata);
-    body = body.slice(frontMatter[0].length);
-  }
+interface WasmIngredient extends WasmComponent {
+  reference: { name: string; components: string[] } | null;
+  relation: { relation: { type: 'definition' | 'reference' } };
+}
 
-  const lines = body.split(/\r?\n/);
-  const stepsRaw: Array<{ text: string; section?: string }> = [];
-  const notesRaw: string[] = [];
-  let paragraph: string[] = [];
-  let currentNote: string[] = [];
-  let currentSection: string | undefined = undefined;
+interface WasmTimer {
+  name: string | null;
+  quantity: WasmQuantity | null;
+}
 
-  const flushParagraph = () => {
-    if (paragraph.length > 0) {
-      stepsRaw.push({
-        text: paragraph.join(' '),
-        section: currentSection
-      });
-      paragraph = [];
-    }
+type WasmItem =
+  | { type: 'text'; value: string }
+  | { type: 'ingredient' | 'cookware' | 'timer' | 'inlineQuantity'; index: number };
+
+interface WasmRecipe {
+  raw_metadata: { map: Record<string, unknown> };
+  sections: Array<{
+    name: string | null;
+    content: Array<{ type: 'step'; value: { items: WasmItem[] } } | { type: 'text'; value: string }>;
+  }>;
+  ingredients: WasmIngredient[];
+  cookware: WasmComponent[];
+  timers: WasmTimer[];
+  inline_quantities: WasmQuantity[];
+}
+
+/** Bit of the parser's extension flags that detects quantities such as "180°C" inside the text */
+const INLINE_QUANTITIES = 1 << 7;
+
+/** Raise when the way recipes are read changes, cached recipes are then parsed again */
+export const PARSER_VERSION = 4;
+
+let parser: Parser | null = null;
+
+function toNumber(n: WasmNumber): number {
+  if (n.type === 'regular') return n.value;
+  const { whole, num, den } = n.value;
+  return whole + num / den;
+}
+
+/** Fractions and ranges are kept as written ("1/2", "1-2"), plain numbers stay numbers */
+function toDisplay(n: WasmNumber): number | string {
+  if (n.type === 'regular') return n.value;
+  const { whole, num, den } = n.value;
+  return whole > 0 ? `${whole} ${num}/${den}` : `${num}/${den}`;
+}
+
+function convertQuantity(q: WasmQuantity | null): {
+  quantity?: number | string;
+  units?: string;
+  fixed?: boolean;
+} {
+  if (!q) return {};
+  let quantity: number | string;
+  if (q.value.type === 'number') quantity = toDisplay(q.value.value);
+  else if (q.value.type === 'range') quantity = `${toDisplay(q.value.value.start)}-${toDisplay(q.value.value.end)}`;
+  else quantity = q.value.value;
+  return {
+    quantity,
+    units: q.unit || undefined,
+    // Free text can't be scaled either, but that is not a lock the author set
+    fixed: q.value.type !== 'text' && !q.scalable ? true : undefined
   };
+}
 
-  const flushNote = () => {
-    if (currentNote.length > 0) {
-      notesRaw.push(currentNote.join(' '));
-      currentNote = [];
-    }
-  };
+/** First number of a quantity, the lower end for ranges. Null for free text. */
+function firstNumber(q: WasmQuantity | null): number | null {
+  if (!q) return null;
+  if (q.value.type === 'number') return toNumber(q.value.value);
+  if (q.value.type === 'range') return toNumber(q.value.value.start);
+  return parseQuantity(q.value.value);
+}
 
-  let inBlockComment = false;
+const hasModifier = (c: WasmComponent, flag: string) => c.modifiers.split(/[^A-Z]+/).includes(flag);
 
-  for (const rawLine of lines) {
-    let line = rawLine;
-
-    // Block comments [- ... -]
-    if (inBlockComment) {
-      const end = line.indexOf('-]');
-      if (end === -1) continue;
-      line = line.slice(end + 2);
-      inBlockComment = false;
-    }
-    line = line.replace(/\[-[\s\S]*?-\]/g, '');
-    const openIdx = line.indexOf('[-');
-    if (openIdx !== -1) {
-      line = line.slice(0, openIdx);
-      inBlockComment = true;
-    }
-
-    // Empty line separates steps (paragraphs in cooklang)
-    if (rawLine.trim() === '') {
-      flushParagraph();
-      flushNote();
-      continue;
-    }
-
-    // Line comments (-- until end of line)
-    const commentIdx = line.indexOf('--');
-    if (commentIdx !== -1) {
-      line = line.slice(0, commentIdx);
-    }
-    line = line.trim();
-    if (!line) continue;
-
-    // Legacy metadata lines: >> key: value
-    if (line.startsWith('>>')) {
-      const metaLine = line.slice(2).trim();
-      const colonIdx = metaLine.indexOf(':');
-      if (colonIdx > -1) {
-        const key = metaLine.slice(0, colonIdx).trim().toLowerCase();
-        const value = metaLine.slice(colonIdx + 1).trim();
-        if (key === 'tags' || key === 'tag') {
-          metadata.tags = value.split(',').map((t) => t.trim()).filter(Boolean);
-        } else {
-          metadata[key] = value;
-        }
-      }
-      continue;
-    }
-
-    // Cooklang notes starting with >
-    if (line.startsWith('>')) {
-      flushParagraph();
-      const noteContent = line.replace(/^>+\s*/, '').trim();
-      if (noteContent) {
-        currentNote.push(noteContent);
-      }
-      continue;
-    }
-
-    // Section headers (= Dough =, == Dough ==, = Dough)
-    if (line.startsWith('=')) {
-      flushParagraph();
-      flushNote();
-
-      let secName = '';
-      let remainingText = '';
-
-      const withClosingEquals = line.match(/^=+\s*([^=]*?)\s*=+(.*)$/);
-      if (withClosingEquals) {
-        secName = withClosingEquals[1].trim();
-        remainingText = withClosingEquals[2].trim();
-      } else {
-        const withoutClosing = line.match(/^=+\s*(.*)$/);
-        secName = withoutClosing ? withoutClosing[1].trim() : '';
-      }
-
-      currentSection = secName || undefined;
-
-      if (remainingText) {
-        paragraph.push(remainingText);
-      }
-      continue;
-    }
-
-    flushNote();
-    paragraph.push(line);
-  }
-  flushParagraph();
-  flushNote();
-
-  // Also collect any notes from metadata if present
-  const metaNotes = metadata.notes ?? metadata.note ?? metadata.tips ?? metadata.tip;
-  if (metaNotes) {
-    if (Array.isArray(metaNotes)) {
-      metaNotes.forEach((n) => {
-        const str = String(n).trim();
-        if (str && !notesRaw.includes(str)) notesRaw.push(str);
-      });
-    } else if (typeof metaNotes === 'string' && metaNotes.trim() && !notesRaw.includes(metaNotes.trim())) {
-      notesRaw.push(metaNotes.trim());
-    }
-  }
-
-  // Derive recipe name from metadata or path
-  const filename = path.split('/').pop()?.replace(/\.cook$/i, '') || 'Recipe';
-  const name = (metadata.title as string) || filename.replace(/[-_]/g, ' ');
-
-  const allIngredients: CookIngredient[] = [];
-  const allCookwareMap = new Map<string, CookCookware>();
-  const steps: CookStep[] = [];
-  const sectionsMap = new Map<string | undefined, CookStep[]>();
-  const sectionOrder: Array<string | undefined> = [];
-
-  stepsRaw.forEach((rawStep, idx) => {
-    const { items, ingredients, cookware, timers } = parseStepText(rawStep.text);
-    if (items.length > 0) {
-      const step: CookStep = {
-        stepNumber: idx + 1,
-        section: rawStep.section,
-        items,
-        rawText: rawStep.text,
-        ingredients,
-        cookware,
-        timers
-      };
-      steps.push(step);
-
-      if (!sectionsMap.has(rawStep.section)) {
-        sectionsMap.set(rawStep.section, []);
-        sectionOrder.push(rawStep.section);
-      }
-      sectionsMap.get(rawStep.section)!.push(step);
-
-      allIngredients.push(...ingredients);
-
-      // Aggregate cookware
-      cookware.forEach((cw) => {
-        const key = `${cw.name.toLowerCase()}|${cw.optional ? 'opt' : 'req'}`;
-        if (!allCookwareMap.has(key)) {
-          allCookwareMap.set(key, { ...cw });
-        }
-      });
-    }
-  });
-
-  const hasSections = steps.some((s) => Boolean(s.section));
-  const sections = hasSections
-    ? sectionOrder.map((secName) => ({
-        name: secName,
-        steps: sectionsMap.get(secName) || []
-      }))
+function convertIngredient(ing: WasmIngredient): CookIngredient {
+  const ref = ing.reference;
+  const recipePath = ref
+    ? [...ref.components.filter((c) => c !== '.' && c !== '..'), ref.name].join('/')
     : undefined;
+  return {
+    name: ing.name,
+    alias: ing.alias || undefined,
+    ...convertQuantity(ing.quantity),
+    note: ing.note || undefined,
+    optional: hasModifier(ing, 'OPT') || undefined,
+    hidden: hasModifier(ing, 'HIDDEN') || undefined,
+    isNew: hasModifier(ing, 'NEW') || undefined,
+    isReference: ing.relation.relation.type === 'reference' || undefined,
+    recipePath
+  };
+}
 
-  const folder = path.includes('/') ? path.split('/').slice(0, -1).join('/') : undefined;
+function convertCookware(cw: WasmComponent): CookCookware {
+  const { quantity } = convertQuantity(cw.quantity);
+  return {
+    name: cw.name,
+    alias: cw.alias || undefined,
+    quantity,
+    note: cw.note || undefined,
+    optional: hasModifier(cw, 'OPT') || undefined,
+    hidden: hasModifier(cw, 'HIDDEN') || undefined
+  };
+}
 
+function convertTimer(t: WasmTimer): CookTimer {
+  const { quantity, units } = convertQuantity(t.quantity);
+  const unit = units ?? 'minutes';
+  const value = firstNumber(t.quantity) ?? 0;
+  return {
+    name: t.name || undefined,
+    quantity: quantity ?? '',
+    units: unit,
+    totalSeconds: unitToSeconds(unit, value)
+  };
+}
+
+/** Text of a quantity found inside a sentence, such as the temperature in "180°C" */
+function inlineQuantityText(q: WasmQuantity): string {
+  const { quantity, units } = convertQuantity(q);
+  if (quantity === undefined) return '';
+  if (!units) return String(quantity);
+  return /^[CFK]$/.test(units) ? `${quantity}°${units}` : `${quantity} ${units}`;
+}
+
+const ENTITIES: Record<string, string> = { '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&amp;': '&' };
+
+/**
+ * Messages that only describe how the parser runs here, or that the Cooklang conventions allow
+ * anyway ("servings: 6 portions", "yield: 500%ml", timers in German), not something wrong in the recipe.
+ */
+function isIgnoredMessage(block: string): boolean {
+  const head = block.split('\n')[0];
+  if (/scaling lock|Redundant new/i.test(head)) return true;
+  if (/Unsupported value for key: '(servings|yield)'/i.test(head)) return true;
+  const unit = head.match(/Unknown timer unit: (.+)$/i)?.[1];
+  return Boolean(unit && UNIT_SECONDS.some(([re]) => re.test(unit.trim().toLowerCase())));
+}
+
+/** The parser's report comes as HTML with colors, the app shows it as plain text */
+function reportToText(html: string): string {
+  const text = html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(lt|gt|quot|amp|#39);/g, (m) => ENTITIES[m] ?? m);
+  // One block per message, each starting with "Warning:" or "Error:"
+  return text
+    .split(/^(?=(?:Warning|Error): )/m)
+    .filter((block) => !isIgnoredMessage(block))
+    .join('')
+    .trim();
+}
+
+/** Metadata the way the app reads it, based on the keys from the Cooklang conventions */
+function buildMetadata(map: Record<string, unknown>): CookMetadata {
+  const metadata: CookMetadata = {};
+  const asText = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(', ') : String(v));
+  const list = (v: unknown): string[] =>
+    (Array.isArray(v) ? v.map(String) : String(v).split(','))
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+  for (const [key, value] of Object.entries(map)) {
+    if (value === null || value === undefined) continue;
+    metadata[key.toLowerCase()] = value;
+  }
+
+  const first = (...keys: string[]) => {
+    for (const key of keys) {
+      const v = metadata[key];
+      if (v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)) return v;
+    }
+    return undefined;
+  };
+
+  if (metadata.tags !== undefined || metadata.tag !== undefined) {
+    metadata.tags = list(first('tags', 'tag') ?? []);
+  }
+
+  const servings = first('servings', 'serves');
+  if (servings !== undefined) metadata.servings = typeof servings === 'number' ? servings : asText(servings);
+
+  const description = first('description', 'introduction');
+  if (description !== undefined) metadata.description = asText(description);
+
+  // time: either a total ("45 minutes") or a map with prep and cook
+  const time = metadata.time;
+  let nestedTime: Record<string, unknown> | null = null;
+  if (time && typeof time === 'object' && !Array.isArray(time)) {
+    nestedTime = time as Record<string, unknown>;
+    delete metadata.time;
+  }
+  const prep = first('prep time', 'prep_time', 'time.prep') ?? nestedTime?.prep ?? nestedTime?.prep_time;
+  const cook = first('cook time', 'cook_time', 'time.cook') ?? nestedTime?.cook ?? nestedTime?.cook_time;
+  const total = first('time required', 'time', 'duration', 'time.total', 'total time', 'total_time');
+  if (prep !== undefined) metadata.prep_time = asText(prep);
+  if (cook !== undefined) metadata.cook_time = asText(cook);
+  if (total !== undefined) metadata.time = asText(total);
+
+  // source and author, flat (`source.name`) or nested (`source: {name, url}`)
+  const source = metadata.source;
+  let sourceName: unknown;
+  let sourceUrl: unknown;
+  let sourceAuthor: unknown;
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    const nested = source as Record<string, unknown>;
+    sourceName = nested.name;
+    sourceUrl = nested.url;
+    sourceAuthor = nested.author;
+  }
+  sourceName ??= metadata['source.name'];
+  sourceUrl ??= metadata['source.url'];
+  sourceAuthor ??= metadata['source.author'];
+  if (typeof source === 'object' || sourceName !== undefined || sourceUrl !== undefined) {
+    metadata.source = asText(sourceName ?? sourceUrl ?? '') || undefined;
+  }
+  if (sourceUrl !== undefined) metadata.source_url = asText(sourceUrl);
+  if (metadata.author === undefined && sourceAuthor !== undefined) metadata.author = asText(sourceAuthor);
+  if (metadata.author !== undefined) metadata.author = asText(metadata.author);
+
+  const images = first('image', 'images', 'picture', 'pictures', 'photo');
+  if (images !== undefined) metadata.image = asText(Array.isArray(images) ? images[0] : images);
+
+  if (metadata.title !== undefined) metadata.title = asText(metadata.title);
+  return metadata;
+}
+
+/** Text of the recipe when the parser can't read it: front matter dropped, one step per paragraph */
+function plainTextRecipe(content: string, path: string, diagnostics: string): Recipe {
+  const body = content
+    .replace(/^﻿/, '')
+    .replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '');
+  const title = content.match(/^title:[ \t]*(.+)$/m)?.[1]?.trim().replace(/^(['"])(.*)\1$/, '$2');
+  const steps: CookStep[] = body
+    .split(/\r?\n\s*\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((text, idx) => ({
+      stepNumber: idx + 1,
+      items: [{ type: 'text' as const, value: text }],
+      rawText: text,
+      ingredients: [],
+      cookware: [],
+      timers: []
+    }));
   return {
     id: path,
     path,
-    name,
-    folder,
-    metadata,
+    name: title || fileName(path),
+    folder: folderOf(path),
+    metadata: title ? { title } : {},
     steps,
-    sections,
-    ingredients: aggregateIngredients(allIngredients),
-    cookware: Array.from(allCookwareMap.values()),
-    notes: notesRaw.length > 0 ? notesRaw : undefined,
+    ingredients: [],
+    cookware: [],
+    diagnostics,
+    hasError: true,
     rawCook: content,
-    image: (metadata.image as string) || (metadata.picture as string) || (metadata.photo as string),
+    parserVersion: PARSER_VERSION,
     cachedAt: Date.now()
   };
 }
 
-/**
- * Tokenize a single Cooklang step string into structured items
- */
-export function parseStepText(text: string): {
-  items: StepItem[];
-  ingredients: CookIngredient[];
-  cookware: CookCookware[];
-  timers: CookTimer[];
-} {
-  const items: StepItem[] = [];
-  const ingredients: CookIngredient[] = [];
-  const cookware: CookCookware[] = [];
-  const timers: CookTimer[] = [];
-
-  let i = 0;
-  let currentText = '';
-
-  const flushText = () => {
-    if (currentText.length > 0) {
-      items.push({ type: 'text', value: currentText });
-      currentText = '';
-    }
-  };
-
-  while (i < text.length) {
-    const char = text[i];
-
-    // Ingredient @ or @?
-    if (char === '@') {
-      flushText();
-      const parsed = parseEntity(text, i);
-      i = parsed.nextIndex;
-      const ing: CookIngredient = {
-        name: parsed.name,
-        quantity: parsed.quantity,
-        units: parsed.units,
-        optional: parsed.optional
-      };
-      ingredients.push(ing);
-      items.push({
-        type: 'ingredient',
-        name: ing.name,
-        quantity: ing.quantity,
-        units: ing.units,
-        optional: ing.optional
-      });
-      continue;
-    }
-
-    // Cookware # or #?
-    if (char === '#') {
-      flushText();
-      const parsed = parseEntity(text, i);
-      i = parsed.nextIndex;
-      const cw: CookCookware = {
-        name: parsed.name,
-        quantity: parsed.quantity,
-        optional: parsed.optional
-      };
-      cookware.push(cw);
-      items.push({
-        type: 'cookware',
-        name: cw.name,
-        quantity: cw.quantity,
-        optional: cw.optional
-      });
-      continue;
-    }
-
-    // Timer ~
-    if (char === '~') {
-      flushText();
-      const parsedTimer = parseTimerEntity(text, i);
-      i = parsedTimer.nextIndex;
-      timers.push(parsedTimer.timer);
-      items.push({
-        type: 'timer',
-        name: parsedTimer.timer.name,
-        quantity: parsedTimer.timer.quantity,
-        units: parsedTimer.timer.units,
-        totalSeconds: parsedTimer.timer.totalSeconds
-      });
-      continue;
-    }
-
-    currentText += char;
-    i++;
-  }
-
-  flushText();
-
-  return { items, ingredients, cookware, timers };
-}
+const fileName = (path: string) => (path.split('/').pop() ?? '').replace(/\.cook$/i, '').replace(/[-_]/g, ' ') || 'Recipe';
+const folderOf = (path: string) => (path.includes('/') ? path.split('/').slice(0, -1).join('/') : undefined);
 
 /**
- * Parses `@name{qty%units}`, `@?name{qty%units}`, `#name{qty}`, `#?name{qty}` or single word `@name`, `@?name`
+ * Parse a raw .cook formatted file with the official parser.
+ * Text the parser rejects is shown as plain text; `hasError` and `diagnostics` say why.
  */
-function parseEntity(
-  text: string,
-  startIndex: number
-): {
-  name: string;
-  quantity?: string | number;
-  units?: string;
-  optional?: boolean;
-  nextIndex: number;
-} {
-  const isOptional =
-    text[startIndex + 1] === '?' &&
-    startIndex + 2 < text.length &&
-    !/\s/.test(text[startIndex + 2]);
-
-  const nameStartIndex = isOptional ? startIndex + 2 : startIndex + 1;
-
-  let braceIdx = -1;
-  for (let j = nameStartIndex; j < text.length; j++) {
-    const c = text[j];
-    if (c === '{') {
-      braceIdx = j;
-      break;
+export function parseCooklangText(content: string, path: string): Recipe {
+  let raw: WasmRecipe | null = null;
+  let report = '';
+  try {
+    if (!parser) {
+      parser = new Parser();
+      // Keep temperatures and the like as the author wrote them instead of splitting them out of the text
+      parser.extensions = parser.extensions & ~INLINE_QUANTITIES;
     }
-    if (
-      c === '\n' ||
-      c === '\r' ||
-      c === '@' ||
-      c === '#' ||
-      c === '~' ||
-      c === ',' ||
-      (c === '.' && text[j + 1] !== '/') ||
-      c === ';' ||
-      c === '!' ||
-      c === '?'
-    ) {
-      break;
+    const result = parser.parse_full(content.replace(/^﻿/, ''), true);
+    report = reportToText(result.error);
+    try {
+      raw = JSON.parse(result.value) as WasmRecipe;
+    } catch {
+      raw = null;
     }
+  } catch (e) {
+    report = `Der Parser ist abgestürzt: ${e instanceof Error ? e.message : String(e)}`;
+    parser = null;
   }
+  if (!raw) return plainTextRecipe(content, path, report);
 
-  if (braceIdx !== -1) {
-    let name = text.slice(nameStartIndex, braceIdx).trim();
-    const closeIdx = text.indexOf('}', braceIdx + 1);
-    const endBrace = closeIdx !== -1 ? closeIdx : text.length;
-    const body = text.slice(braceIdx + 1, endBrace).trim();
-    const nextIndex = closeIdx !== -1 ? closeIdx + 1 : endBrace;
+  const metadata = buildMetadata(raw.raw_metadata.map);
 
-    let quantity: string | number | undefined;
-    let units: string | undefined;
+  const ingredientsByIndex = raw.ingredients.map(convertIngredient);
+  const cookwareByIndex = raw.cookware.map(convertCookware);
+  const timersByIndex = raw.timers.map(convertTimer);
 
-    if (body.includes('%')) {
-      const [q, u] = body.split('%');
-      quantity = q.trim() || undefined;
-      units = u.trim() || undefined;
-    } else if (body.length > 0) {
-      if (!name) {
-        name = body;
-      } else {
-        quantity = body.trim();
+  const notesRaw: string[] = [];
+  let pendingNotes: string[] = [];
+  const steps: CookStep[] = [];
+  const sectionList: Array<{ name?: string; steps: CookStep[] }> = [];
+
+  for (const rawSection of raw.sections) {
+    const sectionName = rawSection.name?.trim() || undefined;
+    const sectionSteps: CookStep[] = [];
+
+    for (const block of rawSection.content) {
+      if (block.type === 'text') {
+        if (block.value.trim()) pendingNotes.push(block.value.trim());
+        continue;
       }
+
+      const items: StepItem[] = [];
+      const ingredients: CookIngredient[] = [];
+      const cookware: CookCookware[] = [];
+      const timers: CookTimer[] = [];
+      const pushText = (value: string) => {
+        const last = items[items.length - 1];
+        if (last?.type === 'text') last.value += value;
+        else items.push({ type: 'text', value });
+      };
+
+      for (const item of block.value.items) {
+        if (item.type === 'text') {
+          pushText(item.value);
+        } else if (item.type === 'inlineQuantity') {
+          pushText(inlineQuantityText(raw.inline_quantities[item.index]));
+        } else if (item.type === 'ingredient') {
+          const ing = ingredientsByIndex[item.index];
+          ingredients.push(ing);
+          items.push({
+            type: 'ingredient',
+            name: ing.name,
+            alias: ing.alias,
+            quantity: ing.quantity,
+            units: ing.units,
+            note: ing.note,
+            optional: ing.optional,
+            fixed: ing.fixed,
+            hidden: ing.hidden,
+            isReference: ing.isReference,
+            recipePath: ing.recipePath
+          });
+        } else if (item.type === 'cookware') {
+          const cw = cookwareByIndex[item.index];
+          cookware.push(cw);
+          items.push({
+            type: 'cookware',
+            name: cw.name,
+            alias: cw.alias,
+            quantity: cw.quantity,
+            note: cw.note,
+            optional: cw.optional,
+            hidden: cw.hidden
+          });
+        } else if (item.type === 'timer') {
+          const timer = timersByIndex[item.index];
+          timers.push(timer);
+          items.push({
+            type: 'timer',
+            name: timer.name,
+            quantity: timer.quantity,
+            units: timer.units,
+            totalSeconds: timer.totalSeconds
+          });
+        }
+      }
+
+      if (items.length === 0) continue;
+      const step: CookStep = {
+        // Numbering runs through the whole recipe, sections do not restart it
+        stepNumber: steps.length + 1,
+        section: sectionName,
+        notesBefore: pendingNotes.length > 0 ? pendingNotes : undefined,
+        items,
+        rawText: items.map((i) => (i.type === 'text' ? i.value : (i.alias ?? i.name ?? ''))).join(''),
+        ingredients,
+        cookware,
+        timers
+      };
+      pendingNotes = [];
+      steps.push(step);
+      sectionSteps.push(step);
     }
 
-    const rawName = name;
-    const isOpt = Boolean(isOptional || rawName.startsWith('?'));
-    const cleanName = rawName.replace(/^\?+\s*/, '').trim();
-
-    return {
-      name: cleanName,
-      quantity,
-      units,
-      optional: isOpt || undefined,
-      nextIndex
-    };
+    // A section without steps (only a heading or notes) is not shown
+    if (sectionSteps.length > 0) sectionList.push({ name: sectionName, steps: sectionSteps });
   }
 
-  // Single-word without braces (e.g. @salt, #pan, @Öl, @?chives)
-  let j = nameStartIndex;
-  while (j < text.length && /[\p{L}\p{N}_-]/u.test(text[j])) {
-    j++;
+  // Notes after the last step
+  if (pendingNotes.length > 0) {
+    if (steps.length > 0) steps[steps.length - 1].notesAfter = pendingNotes;
+    else notesRaw.push(...pendingNotes);
   }
 
-  const rawName = text.slice(nameStartIndex, j).trim();
-  const isOpt = Boolean(isOptional || rawName.startsWith('?'));
-  const cleanName = rawName.replace(/^\?+\s*/, '').trim();
+  // Also collect any notes from metadata if present
+  const metaNotes = metadata.notes ?? metadata.note ?? metadata.tips ?? metadata.tip;
+  for (const n of Array.isArray(metaNotes) ? metaNotes : metaNotes ? [metaNotes] : []) {
+    const str = String(n).trim();
+    if (str && !notesRaw.includes(str)) notesRaw.push(str);
+  }
+
+  const allCookware = new Map<string, CookCookware>();
+  for (const cw of cookwareByIndex) {
+    if (cw.hidden) continue;
+    const key = `${cw.name.toLowerCase()}|${cw.optional ? 'opt' : 'req'}`;
+    const existing = allCookware.get(key);
+    if (!existing) {
+      allCookware.set(key, { ...cw });
+      continue;
+    }
+    // Same cookware mentioned again: keep the amount if the first mention had none, collect notes
+    if (existing.quantity === undefined) existing.quantity = cw.quantity;
+    if (cw.note && !(existing.note ?? '').split('; ').includes(cw.note)) {
+      existing.note = existing.note ? `${existing.note}; ${cw.note}` : cw.note;
+    }
+    if (!existing.alias) existing.alias = cw.alias;
+  }
+
+  // Hidden ingredients stay out of the list, and so do references without an amount of their own
+  const listed = ingredientsByIndex.filter(
+    (ing) => !ing.hidden && !(ing.isReference && ing.quantity === undefined)
+  );
+
+  const hasSections = sectionList.some((s) => Boolean(s.name));
+
   return {
-    name: cleanName,
-    quantity: undefined,
-    units: undefined,
-    optional: isOpt || undefined,
-    nextIndex: j
-  };
-}
-
-/**
- * Parses timer `~{20%minutes}` or `~simmer{15%min}`
- */
-function parseTimerEntity(
-  text: string,
-  startIndex: number
-): {
-  timer: CookTimer;
-  nextIndex: number;
-} {
-  let braceIdx = -1;
-  for (let j = startIndex + 1; j < text.length; j++) {
-    const c = text[j];
-    if (c === '{') {
-      braceIdx = j;
-      break;
-    }
-    if (
-      c === '\n' ||
-      c === '\r' ||
-      c === '@' ||
-      c === '#' ||
-      c === '~' ||
-      c === ',' ||
-      c === '.' ||
-      c === ';' ||
-      c === '!' ||
-      c === '?'
-    ) {
-      break;
-    }
-  }
-
-  if (braceIdx !== -1) {
-    const name = text.slice(startIndex + 1, braceIdx).trim();
-    const closeIdx = text.indexOf('}', braceIdx + 1);
-    const endBrace = closeIdx !== -1 ? closeIdx : text.length;
-    const body = text.slice(braceIdx + 1, endBrace).trim();
-    const nextIndex = closeIdx !== -1 ? closeIdx + 1 : endBrace;
-
-    let quantity: number | string = 5;
-    let units = 'minutes';
-
-    if (body.includes('%')) {
-      const [q, u] = body.split('%');
-      quantity = q.trim() || '5';
-      units = u.trim() || 'minutes';
-    } else if (body.length > 0) {
-      quantity = body.trim();
-    }
-
-    const numQty = parseQuantity(quantity) ?? 5;
-    const totalSeconds = unitToSeconds(units, numQty);
-
-    return {
-      timer: {
-        name: name || 'Timer',
-        quantity,
-        units,
-        totalSeconds
-      },
-      nextIndex
-    };
-  }
-
-  return {
-    timer: {
-      name: 'Timer',
-      quantity: 5,
-      units: 'minutes',
-      totalSeconds: 300
-    },
-    nextIndex: startIndex + 1
+    id: path,
+    path,
+    name: (metadata.title as string) || fileName(path),
+    folder: folderOf(path),
+    metadata,
+    steps,
+    sections: hasSections ? sectionList : undefined,
+    ingredients: aggregateIngredients(listed),
+    cookware: Array.from(allCookware.values()),
+    notes: notesRaw.length > 0 ? notesRaw : undefined,
+    diagnostics: report || undefined,
+    rawCook: content,
+    parserVersion: PARSER_VERSION,
+    image: metadata.image as string | undefined,
+    cachedAt: Date.now()
   };
 }

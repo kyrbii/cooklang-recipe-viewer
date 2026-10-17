@@ -18,14 +18,17 @@ import {
   Lightbulb,
   Sparkles,
   Trash2,
-  Copy
+  Copy,
+  Lock,
+  CornerUpLeft,
+  ExternalLink
 } from 'lucide-react';
 import type { Recipe, StepItem } from '../types/cook';
 import {
-  aggregateIngredients,
-  parseQuantity,
-  parseStepText,
+  displayName,
+  parseLeadingNumber,
   scaleQuantity,
+  servingsUnit,
   sortIngredientsByQuantity
 } from '../utils/cooklangParser';
 import { cookApi } from '../services/cookApi';
@@ -34,6 +37,9 @@ import { copyText, ingredientListText } from '../utils/ingredientText';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useTimers } from '../context/useTimers';
 import { recipeShareUrl } from '../utils/recipeLink';
+import { RecipeRefLink } from './RecipeRefLink';
+import { StepNote } from './StepNote';
+import { expandRecipeReferences } from '../utils/recipeReferences';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import { RecipeReviews } from './RecipeReviews';
 
@@ -162,8 +168,9 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   // Base servings
   const baseServings = useMemo(() => {
     const raw = recipe.metadata.servings;
-    const parsed = parseQuantity(raw);
-    return parsed && parsed > 0 ? parsed : 4;
+    // "6 portions" counts as 6; Cooklang assumes 1 serving when nothing is given
+    const parsed = parseLeadingNumber(raw);
+    return parsed && parsed > 0 ? parsed : 1;
   }, [recipe]);
 
   const [currentServings, setCurrentServings] = useState<number>(baseServings);
@@ -180,10 +187,13 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   // Faktor zur Anzeige: maximal zwei Nachkommastellen, ohne unnötige Nullen
   const ratioLabel = Number(ratio.toFixed(2)).toString();
 
+  // Ingredients of referenced recipes (`@./Soßen/Pesto{}`) are listed too, scaled to the amount asked for
   const ingredients = useMemo(
-    () => sortIngredientsByQuantity(aggregateIngredients(recipe.ingredients)),
+    () => sortIngredientsByQuantity(expandRecipeReferences(recipe, cookApi.getCachedRecipes())),
     [recipe]
   );
+
+  const servingsLabel = servingsUnit(recipe.metadata.servings) ?? 'Portionen';
 
   // Copies all ingredients at the current servings, not only the open ones
   const handleCopyIngredients = async () => {
@@ -245,6 +255,22 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  const asList = (v: unknown): string[] =>
+    (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]).map((x) => String(x).trim()).filter(Boolean);
+  const meta = recipe.metadata;
+  const infoChips = [
+    ...asList(meta.course ?? meta.category).map((value) => ({ label: 'Gang', value })),
+    ...asList(meta.cuisine).map((value) => ({ label: 'Küche', value })),
+    ...asList(meta.difficulty).map((value) => ({ label: 'Schwierigkeit', value })),
+    ...asList(meta.diet).map((value) => ({ label: 'Ernährung', value })),
+    ...asList(meta.locale).map((value) => ({ label: 'Sprache', value }))
+  ];
+  const yieldText = asList(meta.yield)
+    .map((y) => y.replace('%', ' '))
+    .join(' / ');
+  const sourceUrl = typeof meta.source_url === 'string' ? meta.source_url : undefined;
+  const sourceName = typeof meta.source === 'string' && meta.source !== sourceUrl ? meta.source : undefined;
+  const authorName = typeof meta.author === 'string' ? meta.author : undefined;
   const prepTime = recipe.metadata.prep_time;
   const cookTime = recipe.metadata.cook_time;
   const totalTime = recipe.metadata.total_time || recipe.metadata.time;
@@ -310,15 +336,17 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             )}
 
             {/* Edit Recipe Button */}
-            <button
-              id="recipe-edit-button"
-              onClick={onEdit}
-              className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition-all cursor-pointer shadow-2xs"
-              title="Rezeptdatei (.cook) bearbeiten"
-            >
-              <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
-              <span>Bearbeiten</span>
-            </button>
+            {loginUser && (
+              <button
+                id="recipe-edit-button"
+                onClick={onEdit}
+                className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                title="Rezeptdatei (.cook) bearbeiten"
+              >
+                <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
+                <span>Bearbeiten</span>
+              </button>
+            )}
 
             {/* Cook Mode (Screen Wake Lock) Button */}
             <button
@@ -453,7 +481,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   <span className="font-semibold text-stone-900 dark:text-stone-100">
                     {currentServings}
                   </span>
-                  <span>Portionen</span>
+                  <span>{servingsLabel}</span>
                   {ratio !== 1 && (
                     <span className="text-[#DE5D4E] font-semibold">({ratioLabel}x)</span>
                   )}
@@ -500,6 +528,48 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 <span>{copiedLink ? 'Kopiert' : 'Teilen'}</span>
               </button>
             </div>
+
+            {(infoChips.length > 0 || yieldText || sourceName || sourceUrl || authorName) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-stone-600 dark:text-stone-400">
+                {yieldText && (
+                  <span>
+                    <span className="uppercase text-[10px] font-semibold tracking-wider text-stone-400 mr-1.5">
+                      Ergibt
+                    </span>
+                    {yieldText}
+                  </span>
+                )}
+                {infoChips.map((chip) => (
+                  <span
+                    key={chip.label + chip.value}
+                    className="px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800/70 border border-stone-200/60 dark:border-stone-700/60"
+                    title={chip.label}
+                  >
+                    <span className="text-stone-400 mr-1">{chip.label}:</span>
+                    {chip.value}
+                  </span>
+                ))}
+                {authorName && <span>von {authorName}</span>}
+                {(sourceName || sourceUrl) && (
+                  <span className="flex items-center gap-1">
+                    <span className="uppercase text-[10px] font-semibold tracking-wider text-stone-400">Quelle</span>
+                    {sourceUrl && /^https?:\/\//i.test(sourceUrl) ? (
+                      <a
+                        href={sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-4 hover:text-[#DE5D4E]"
+                      >
+                        {sourceName || sourceUrl.replace(/^https?:\/\//i, '').replace(/\/.*$/, '')}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    ) : (
+                      <span>{sourceName || sourceUrl}</span>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Instructions / Steps Block */}
@@ -507,6 +577,13 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             <h2 className="font-mela-serif text-2xl sm:text-3xl font-bold text-stone-900 dark:text-stone-100 pb-2 border-b border-stone-200/70 dark:border-stone-800/80">
               Zubereitung
             </h2>
+
+            {recipe.hasError && (
+              <div className="px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300/50 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-200">
+                Der Rezepttext hat einen Fehler und wird deshalb nur als Text angezeigt. Beim Bearbeiten
+                steht, was genau nicht stimmt.
+              </div>
+            )}
 
             <div className="space-y-8">
               {groupedSections.map((group, gIdx) => (
@@ -522,14 +599,16 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
                   <div className="space-y-6 sm:space-y-7">
                     {group.steps.map((step) => (
-                      <div key={step.stepNumber} className="flex gap-4 sm:gap-5">
+                      <React.Fragment key={step.stepNumber}>
+                      {step.notesBefore && <StepNote notes={step.notesBefore} />}
+                      <div className="flex gap-4 sm:gap-5">
                         {/* Step Number in bold serif */}
                         <span className="font-mela-serif text-xl sm:text-2xl font-bold text-stone-400 dark:text-stone-500 shrink-0 w-6 pt-0.5">
                           {step.stepNumber}
                         </span>
 
                         {/* Step text with clean typography and embedded interactive timers */}
-                        <div className="flex-1 text-[15px] sm:text-base leading-relaxed text-stone-800 dark:text-stone-200">
+                        <div className="flex-1 text-[15px] sm:text-base leading-relaxed text-stone-800 dark:text-stone-200 whitespace-pre-line">
                           {renderMelaStepItems(
                             step.items,
                             ratio,
@@ -542,11 +621,22 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                           )}
                         </div>
                       </div>
+                      {step.notesAfter && <StepNote notes={step.notesAfter} />}
+                      </React.Fragment>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
+
+            {recipe.diagnostics && !recipe.hasError && (
+              <details className="rounded-xl border border-stone-200/70 dark:border-stone-800 px-3.5 py-2 text-xs text-stone-500 dark:text-stone-400">
+                <summary className="cursor-pointer select-none font-medium">Hinweise des Cooklang-Parsers</summary>
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed select-text">
+                  {recipe.diagnostics}
+                </pre>
+              </details>
+            )}
 
             {/* Tips / Notes Section (Tipps aus dem Rezepttext) */}
             {recipe.notes && recipe.notes.length > 0 && (
@@ -561,31 +651,19 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 </div>
 
                 <div className="space-y-3">
-                  {recipe.notes.map((note, idx) => {
-                    const parsed = parseStepText(note);
-                    return (
-                      <div
-                        key={idx}
-                        className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 dark:border-amber-500/30 text-stone-800 dark:text-stone-200 shadow-2xs"
-                      >
-                        <div className="flex items-start gap-3">
-                          <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                          <div className="flex-1 text-sm sm:text-[15px] leading-relaxed">
-                            {renderMelaStepItems(
-                              parsed.items,
-                              ratio,
-                              addTimer,
-                              recipe.name,
-                              0,
-                              timers,
-                              pauseTimer,
-                              startTimer
-                            )}
-                          </div>
+                  {recipe.notes.map((note, idx) => (
+                    <div
+                      key={idx}
+                      className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 dark:border-amber-500/30 text-stone-800 dark:text-stone-200 shadow-2xs"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 text-sm sm:text-[15px] leading-relaxed whitespace-pre-line">
+                          {note}
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -636,16 +714,24 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 <div className="flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-stone-500" />
                   <span className="text-xs font-bold text-stone-800 dark:text-stone-200">
-                    Portionen
+                    {servingsLabel}
                   </span>
                   {ratio !== 1 && (
                     <span className="text-[11px] font-semibold text-[#DE5D4E] bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
                       {ratioLabel}x
                     </span>
                   )}
+                  {ratio !== 1 && (
+                    <button
+                      onClick={() => setCurrentServings(baseServings)}
+                      className="text-xs text-[#DE5D4E] font-medium ml-1 hover:underline cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
                 <span className="text-[11px] text-stone-400 block mt-0.5">
-                  Basis: {baseServings} Portionen
+                  Basis: {baseServings} {servingsLabel}
                 </span>
               </div>
 
@@ -654,7 +740,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                   onClick={() => handleServingChange(-1)}
                   disabled={currentServings <= 1}
                   className="w-8 h-8 rounded-lg bg-stone-100 dark:bg-stone-800 flex items-center justify-center font-bold text-stone-700 dark:text-stone-200 disabled:opacity-30 active:scale-95 cursor-pointer hover:bg-stone-200/70 dark:hover:bg-stone-700 transition-colors"
-                  title="Portionen verringern"
+                  title="Weniger"
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
@@ -666,19 +752,10 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 <button
                   onClick={() => handleServingChange(1)}
                   className="w-8 h-8 rounded-lg bg-stone-100 dark:bg-stone-800 flex items-center justify-center font-bold text-stone-700 dark:text-stone-200 active:scale-95 cursor-pointer hover:bg-stone-200/70 dark:hover:bg-stone-700 transition-colors"
-                  title="Portionen erhöhen"
+                  title="Mehr"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
-
-                {ratio !== 1 && (
-                  <button
-                    onClick={() => setCurrentServings(baseServings)}
-                    className="text-xs text-[#DE5D4E] font-medium ml-1 hover:underline cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                )}
               </div>
             </div>
 
@@ -689,7 +766,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 const cleanName = ing.name.replace(/^\?+\s*/, '').trim();
                 const itemKey = isOptional ? `${cleanName} (optional)` : cleanName;
                 const isChecked = checkedIngredients.has(itemKey) || checkedIngredients.has(cleanName) || checkedIngredients.has(ing.name);
-                const scaledQty = scaleQuantity(ing.quantity, ratio);
+                const scaledQty = scaleQuantity(ing.quantity, ratio, ing.fixed);
                 const amountPart = [scaledQty, ing.units].filter(Boolean).join(' ');
 
                 return (
@@ -712,13 +789,37 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                       {amountPart && (
                         <span className="font-semibold text-stone-900 dark:text-stone-100 font-mono mr-1.5">
                           {amountPart}
+                          {ing.fixed && (
+                            <Lock
+                              className="inline w-3 h-3 ml-1 -mt-0.5 text-stone-400 dark:text-stone-500"
+                              aria-label="Feste Menge"
+                            >
+                              <title>Feste Menge, wird beim Skalieren nicht geändert</title>
+                            </Lock>
+                          )}
                         </span>
                       )}
-                      <span>{cleanName}</span>
+                      <span>
+                        {ing.recipePath ? (
+                          <RecipeRefLink path={ing.recipePath}>{ing.alias || cleanName}</RecipeRefLink>
+                        ) : (
+                          ing.alias || cleanName
+                        )}
+                      </span>
+                      {ing.note && (
+                        <span className="ml-1.5 text-xs text-stone-500 dark:text-stone-400 font-normal">
+                          ({ing.note})
+                        </span>
+                      )}
+                      {ing.fromRecipe && (
+                        <span className="ml-1.5 text-xs text-stone-400 dark:text-stone-500 font-normal">
+                          aus {ing.fromRecipe}
+                        </span>
+                      )}
                       {ing.sources && ing.sources.length > 1 && (
                         <span className="ml-1.5 text-xs text-stone-400 dark:text-stone-500 font-normal">
                           ({ing.sources
-                            .map((src) => [scaleQuantity(src.quantity, ratio), src.units].filter(Boolean).join(' '))
+                            .map((src) => [scaleQuantity(src.quantity, ratio, ing.fixed), src.units].filter(Boolean).join(' '))
                             .join(' und ')})
                         </span>
                       )}
@@ -745,13 +846,14 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 <div className="flex flex-wrap gap-1.5">
                   {recipe.cookware.map((cw, idx) => {
                     const isOptional = Boolean(cw.optional || cw.name.startsWith('?'));
-                    const cleanName = cw.name.replace(/^\?+\s*/, '').trim();
                     return (
                       <span
                         key={idx}
                         className="px-2.5 py-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50"
                       >
-                        {cleanName}{isOptional ? ' (optional)' : ''}
+                        {cw.quantity !== undefined && cw.quantity !== '' ? `${cw.quantity}× ` : ''}
+                        {displayName(cw)}{isOptional ? ' (optional)' : ''}
+                        {cw.note ? ` (${cw.note})` : ''}
                       </span>
                     );
                   })}
@@ -801,15 +903,28 @@ function renderMelaStepItems(
     }
 
     if (item.type === 'ingredient') {
-      const scaled = scaleQuantity(item.quantity, ratio);
+      const scaled = scaleQuantity(item.quantity, ratio, item.fixed);
       const amount = [scaled, item.units].filter(Boolean).join(' ');
       const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
       const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
-      const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
+      const label = `${item.alias || cleanName}${isOptional ? ' (optional)' : ''}`;
       return (
         <span key={idx} className="font-semibold text-stone-900 dark:text-stone-100">
           {amount ? `${amount} ` : ''}
-          {displayName}
+          {item.recipePath ? <RecipeRefLink path={item.recipePath}>{label}</RecipeRefLink> : label}
+          {item.isReference && (
+            <CornerUpLeft className="inline w-3 h-3 ml-0.5 -mt-0.5 text-stone-400" aria-label="Verweis auf eine Zutat weiter oben">
+              <title>Verweis auf eine Zutat weiter oben im Rezept</title>
+            </CornerUpLeft>
+          )}
+          {item.fixed && (
+            <Lock className="inline w-3 h-3 ml-1 -mt-0.5 text-stone-400" aria-label="Feste Menge">
+              <title>Feste Menge, wird beim Skalieren nicht geändert</title>
+            </Lock>
+          )}
+          {item.note && (
+            <span className="font-normal text-stone-500 dark:text-stone-400"> ({item.note})</span>
+          )}
         </span>
       );
     }
@@ -817,10 +932,15 @@ function renderMelaStepItems(
     if (item.type === 'cookware') {
       const isOptional = Boolean(item.optional || item.name?.startsWith('?'));
       const cleanName = item.name ? item.name.replace(/^\?+\s*/, '').trim() : '';
-      const displayName = isOptional ? `${cleanName} (optional)` : cleanName;
+      const label = `${item.alias || cleanName}${isOptional ? ' (optional)' : ''}`;
+      const count = item.quantity !== undefined && item.quantity !== '' ? `${item.quantity}× ` : '';
       return (
         <span key={idx} className="font-medium text-stone-900 dark:text-stone-100">
-          {displayName}
+          {count}
+          {label}
+          {item.note && (
+            <span className="font-normal text-stone-500 dark:text-stone-400"> ({item.note})</span>
+          )}
         </span>
       );
     }
@@ -870,10 +990,17 @@ function renderMelaStepItems(
             );
           }}
           className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-[#DE5D4E] hover:underline decoration-dotted underline-offset-4 active:scale-95 transition-all"
-          title="Timer starten"
+          title={
+            typeof item.quantity === 'string' && /[-–]/.test(item.quantity)
+              ? `Timer starten (mit dem unteren Wert: ${formatRemaining(item.totalSeconds || 60)})`
+              : 'Timer starten'
+          }
         >
           <Clock className="w-3 h-3 text-[#DE5D4E]" />
-          <span>{String(item.quantity)} {item.units}</span>
+          <span>
+            {item.name ? `${item.name} ` : ''}
+            {String(item.quantity)} {item.units}
+          </span>
         </button>
       );
     }

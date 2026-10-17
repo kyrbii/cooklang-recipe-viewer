@@ -1,5 +1,5 @@
 import type { ConnectionStatus, Recipe, RecipeDraft, RecipeReviews, UpdateRecipeResult } from '../types/cook';
-import { parseCooklangText } from '../utils/cooklangParser';
+import { PARSER_VERSION, parseCooklangText } from '../utils/cooklangParser';
 import { API_URL } from '../config';
 
 /**
@@ -465,12 +465,35 @@ class CookApiService {
 
   // ---- Cache ----
 
+  /**
+   * Cached recipes made by an older parser setup are read again from their text. Server details
+   * (version, rating, photo) stay as they are.
+   */
+  private upgradeCached(recipe: Recipe): Recipe {
+    if (recipe.parserVersion === PARSER_VERSION || !recipe.rawCook) return recipe;
+    const fresh = parseCooklangText(recipe.rawCook, recipe.path);
+    return {
+      ...fresh,
+      id: recipe.id,
+      etag: recipe.etag,
+      modifiedAt: recipe.modifiedAt,
+      addedBy: recipe.addedBy,
+      ratingAverage: recipe.ratingAverage,
+      ratingCount: recipe.ratingCount,
+      image: recipe.image ?? fresh.image
+    };
+  }
+
   public getCachedRecipes(): Recipe[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.RECIPES_CACHE);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const upgraded = (parsed as Recipe[]).map((r) => this.upgradeCached(r));
+          if (upgraded.some((r, i) => r !== parsed[i])) this.setCachedRecipes(upgraded);
+          return upgraded;
+        }
       }
     } catch {
       // Ignore
@@ -492,7 +515,7 @@ class CookApiService {
   private getCachedRecipe(path: string): Recipe | null {
     try {
       const cached = localStorage.getItem(`${STORAGE_KEYS.RECIPE_DETAIL_PREFIX}${path}`);
-      if (cached) return JSON.parse(cached);
+      if (cached) return this.upgradeCached(JSON.parse(cached));
       return this.getCachedRecipes().find((r) => r.path === path || r.id === path) ?? null;
     } catch {
       return null;

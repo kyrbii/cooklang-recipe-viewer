@@ -8,7 +8,10 @@ import React from 'react';
  * No borders, no padding, no bold/italics that shift glyph widths.
  */
 
-const ENTITY_RE = /(\[-.*?-\])|(--.*$)|([@#]\?|[@#~])([^@#~{}\n]*?\{[^}\n]*\}|[\p{L}\p{N}_-]*)/gu;
+// Groups: block comment, line comment, marker (with modifiers `?`, `&`, `-`, `+`), name and
+// `{quantity}` or single word (with `|alias` and `./recipe/path`), `(preparation note)`
+const ENTITY_RE =
+  /(\[-.*?-\])|(--.*$)|([@#][?&+-]*|~)([^@#~{}\n]*?\{[^}\n]*\}|(?:\.{1,2}\/)?[\p{L}\p{N}_/-]*(?:\|[\p{L}\p{N}_-]+)?)(\([^)\n]*\))?/gu;
 
 const CLS = {
   ingredient: 'text-[#DE5D4E] dark:text-[#f87a6c] bg-[#DE5D4E]/10 rounded-xs',
@@ -34,7 +37,7 @@ function highlightStepLine(line: string, keyPrefix: string): React.ReactNode[] {
       out.push(line.slice(last, start));
     }
 
-    const [full, blockComment, lineComment, marker, rest] = match;
+    const [full, blockComment, lineComment, marker, rest, prepNote] = match;
     const key = `${keyPrefix}_${k++}`;
 
     if (blockComment || lineComment) {
@@ -46,21 +49,14 @@ function highlightStepLine(line: string, keyPrefix: string): React.ReactNode[] {
     } else if (marker) {
       const cls = marker.startsWith('@') ? CLS.ingredient : marker.startsWith('#') ? CLS.cookware : CLS.timer;
       const braceIdx = rest.indexOf('{');
-      if (braceIdx === -1) {
-        out.push(
-          <span key={key} className={cls}>
-            {full}
-          </span>
-        );
-      } else {
-        out.push(
-          <span key={key} className={cls}>
-            {marker}
-            {rest.slice(0, braceIdx)}
-            <span className={CLS.brace}>{rest.slice(braceIdx)}</span>
-          </span>
-        );
-      }
+      out.push(
+        <span key={key} className={cls}>
+          {marker}
+          {braceIdx === -1 ? rest : rest.slice(0, braceIdx)}
+          {braceIdx !== -1 && <span className={CLS.brace}>{rest.slice(braceIdx)}</span>}
+          {prepNote && <span className={CLS.brace}>{prepNote}</span>}
+        </span>
+      );
     }
     last = start + full.length;
   }

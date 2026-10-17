@@ -117,7 +117,7 @@ Wiederherstellen: API stoppen, Archiv in `DATA_DIR` entpacken, API starten. Die 
 |---|---|
 | `src/App.tsx` | Hauptansicht, Rezeptauswahl, Teilen-Empfang |
 | `src/services/cookApi.ts` | API-Zugriff, Anmeldung, Cache, Konfliktprüfung |
-| `src/utils/cooklangParser.ts` | Cooklang-Parser, Zusammenfassen und Sortieren der Zutaten |
+| `src/utils/cooklangParser.ts` | Anbindung des offiziellen Cooklang-Parsers (cooklang-rs als WASM), Mengen, Zusammenfassen und Sortieren der Zutaten |
 | `src/utils/recipeLink.ts` | Rezept-Slugs und Teilen-Links |
 | `src/utils/shareImport.ts` | Auswertung geteilter Inhalte |
 | `api/` | Rezept-API mit KI-Import |

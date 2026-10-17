@@ -1,5 +1,5 @@
 import type { CookIngredient } from '../types/cook';
-import { scaleQuantity } from './cooklangParser';
+import { displayName, scaleQuantity } from './cooklangParser';
 
 /**
  * Plain-text ingredient list, one line per ingredient: "250 g Mehl".
@@ -8,11 +8,11 @@ import { scaleQuantity } from './cooklangParser';
 export function ingredientListText(ingredients: CookIngredient[], ratio: number): string {
   return ingredients
     .map((ing) => {
-      const name = ing.name.replace(/^\?+\s*/, '').trim();
+      const name = displayName(ing).replace(/^\?+\s*/, '').trim();
       const optional = Boolean(ing.optional || ing.name.startsWith('?'));
-      const amount = [scaleQuantity(ing.quantity, ratio), ing.units].filter(Boolean).join(' ');
+      const amount = [scaleQuantity(ing.quantity, ratio, ing.fixed), ing.units].filter(Boolean).join(' ');
       const line = [amount, name].filter(Boolean).join(' ');
-      return `${line}${optional ? ' (optional)' : ''}`;
+      return `${line}${ing.note ? ` (${ing.note})` : ''}${optional ? ' (optional)' : ''}`;
     })
     .join('\n');
 }

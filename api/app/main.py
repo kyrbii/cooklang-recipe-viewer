@@ -4,16 +4,18 @@ import asyncio
 import json
 import sqlite3
 from collections.abc import Iterator
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import ai_import, auth, db
+from . import ai_import, auth, db, recipe_meta
 from .config import Settings, load_settings
+from pathlib import Path
 from urllib.parse import quote
 
 from .storage import MEDIA_TYPES, InvalidPath, RecipeStore, etag, if_match_satisfied, sniff_photo
@@ -50,6 +52,29 @@ class RecipeItem(BaseModel):
     modified: int
     # Relative URL of the recipe photo, with a version parameter; None without a photo
     image: str | None = None
+    # Who added the recipe; None for recipes that were never recorded
+    added_by: str | None = None
+    # Average of all ratings and how many people rated; None without any rating
+    rating_average: float | None = None
+    rating_count: int = 0
+
+
+class ReviewItem(BaseModel):
+    username: str
+    rating: int | None
+    note: str | None
+    updated_at: int
+
+
+class ReviewsResponse(BaseModel):
+    reviews: list[ReviewItem]
+    rating_average: float | None
+    rating_count: int
+
+
+class ReviewRequest(BaseModel):
+    rating: int | None = Field(default=None, ge=1, le=5)
+    note: str | None = Field(default=None, max_length=recipe_meta.NOTE_MAX_LENGTH)
 
 
 class PhotoResponse(BaseModel):
@@ -161,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             throttle.record_failure(client, user)
             raise HTTPException(403, "password does not match")
         throttle.reset(client, user)
+        recipe_meta.forget_user_reviews(conn, user)
         auth.delete_user(conn, user)
         return Response(status_code=204)
 
@@ -173,7 +199,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/recipes", response_model=RecipeList)
-    def list_recipes():
+    def list_recipes(conn: Conn):
+        creators = recipe_meta.creators(conn)
+        ratings = recipe_meta.rating_summaries(conn)
         return RecipeList(
             recipes=[
                 RecipeItem(
@@ -182,6 +210,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     etag=e.etag,
                     modified=e.modified,
                     image=photo_url(e.path, e.photo_version) if e.photo_version else None,
+                    added_by=creators.get(e.path),
+                    rating_average=ratings.get(e.path, (None, 0))[0],
+                    rating_count=ratings.get(e.path, (None, 0))[1],
                 )
                 for e in store.list()
             ]
@@ -210,7 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return b"".join(chunks)
 
     @app.put("/recipe/{path:path}", response_model=SaveResponse)
-    async def put_recipe(path: str, request: Request, _user: Annotated[str, Depends(require_user)]):
+    async def put_recipe(path: str, request: Request, conn: Conn, user: Annotated[str, Depends(require_user)]):
         clean, file = resolve(path)
         data = await read_limited(request, settings.max_recipe_bytes, "recipe too large")
         try:
@@ -231,6 +262,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if not if_match_satisfied(if_match, current_tag):
                     return Response(current, status_code=412, media_type=TEXT, headers={"ETag": current_tag})
             await run_in_threadpool(store.write_atomic, file, data)
+            if current is None:
+                # The first save creates the recipe, so this person is recorded as the one who added it
+                recipe_meta.set_creator(conn, clean, user)
         new_tag = etag(data)
         return Response(
             SaveResponse(path=clean, etag=new_tag).model_dump_json(),
@@ -240,9 +274,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.delete("/recipe/{path:path}", status_code=204)
-    async def delete_recipe(path: str, request: Request, _user: Annotated[str, Depends(require_user)]):
+    async def delete_recipe(path: str, request: Request, conn: Conn, _user: Annotated[str, Depends(require_user)]):
         """Deletes a recipe. Like saving, it needs If-Match, so a version changed elsewhere is not deleted."""
-        _, file = resolve(path)
+        clean, file = resolve(path)
         async with write_lock:
             current = await run_in_threadpool(store.read_bytes, file)
             if current is None:
@@ -254,7 +288,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not if_match_satisfied(if_match, current_tag):
                 return Response(current, status_code=412, media_type=TEXT, headers={"ETag": current_tag})
             await run_in_threadpool(store.delete, file)
+            recipe_meta.forget_recipe(conn, clean)
         return Response(status_code=204)
+
+    def reviews_response(conn: sqlite3.Connection, path: str) -> ReviewsResponse:
+        average, count = recipe_meta.rating_summaries(conn).get(path, (None, 0))
+        return ReviewsResponse(
+            reviews=[ReviewItem(**asdict(r)) for r in recipe_meta.reviews(conn, path)],
+            rating_average=average,
+            rating_count=count,
+        )
+
+    def existing_recipe(path: str) -> tuple[str, Path]:
+        clean, file = resolve(path)
+        if not file.is_file():
+            raise HTTPException(404, "recipe not found")
+        return clean, file
+
+    @app.get("/recipe-reviews/{path:path}", response_model=ReviewsResponse)
+    def get_reviews(path: str, conn: Conn):
+        clean, _ = existing_recipe(path)
+        return reviews_response(conn, clean)
+
+    @app.put("/recipe-reviews/{path:path}", response_model=ReviewsResponse)
+    def put_review(
+        path: str,
+        body: ReviewRequest,
+        conn: Conn,
+        user: Annotated[str, Depends(require_user)],
+    ):
+        """Sets the signed-in person's rating and note. Each person has one review per recipe."""
+        clean, _ = existing_recipe(path)
+        note = (body.note or "").strip() or None
+        recipe_meta.save_review(conn, clean, user, body.rating, note)
+        return reviews_response(conn, clean)
 
     @app.get("/recipe-photo/{path:path}")
     def get_photo(path: str):

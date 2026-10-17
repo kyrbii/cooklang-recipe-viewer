@@ -32,7 +32,7 @@ import { cookApi } from '../services/cookApi';
 import type { RecipeDraft } from '../types/cook';
 import {
   aggregateIngredients,
-  normalizeServerRecipe,
+  parseCooklangText,
   parseStepText,
   sortIngredientsByQuantity
 } from '../utils/cooklangParser';
@@ -389,7 +389,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({
   const preview = useMemo(() => {
     if (!deferredContent.trim()) return null;
     try {
-      return normalizeServerRecipe(deferredContent, path);
+      return parseCooklangText(deferredContent, path);
     } catch {
       return null;
     }

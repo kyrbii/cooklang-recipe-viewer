@@ -1,5 +1,5 @@
-import type { ConnectionStatus, Recipe, RecipeDraft, UpdateRecipeResult } from '../types/cook';
-import { normalizeServerRecipe } from '../utils/cooklangParser';
+import type { ConnectionStatus, Recipe, RecipeDraft, RecipeReviews, UpdateRecipeResult } from '../types/cook';
+import { parseCooklangText } from '../utils/cooklangParser';
 import { API_URL } from '../config';
 
 /**
@@ -8,6 +8,8 @@ import { API_URL } from '../config';
  *   GET  /recipe/{path}    raw .cook text, ETag header (public)
  *   PUT  /recipe/{path}    create or overwrite, needs a login token and If-Match for existing recipes
  *   POST /import           AI import (web page, text or photo → Cooklang), needs a login token
+ *   GET  /recipe-reviews/{path}  ratings and notes of all people (public)
+ *   PUT  /recipe-reviews/{path}  set the signed-in person's rating and note, needs a login token
  *   POST /login, /logout   bearer token
  */
 
@@ -24,9 +26,8 @@ const STORAGE_KEYS = {
   EDIT_DRAFT_PREFIX: 'cook_edit_draft_v1_'
 };
 
-/** Keys from the CookCLI version. Removed on start, so the old Basic Auth password does not stay in the browser. */
-const LEGACY_KEYS = ['cook_server_url', 'cook_server_user', 'cook_server_pass', 'cook_recipes_cache_v5', 'cook_api_url'];
-const LEGACY_DETAIL_PREFIX = 'cook_recipe_detail_v5_';
+/** CookCLI-era credentials. Removed on start, so the old Basic Auth password does not stay in the browser. */
+const LEGACY_CREDENTIAL_KEYS = ['cook_server_user', 'cook_server_pass'];
 
 const normalizeEol = (s: string) => s.replace(/\r\n?/g, '\n');
 
@@ -70,10 +71,14 @@ interface ListEntry {
   modified?: number;
   /** Relative URL of the recipe photo, or null */
   image?: string | null;
+  added_by?: string | null;
+  rating_average?: number | null;
+  rating_count?: number;
 }
 
 /** Prefix of photo URLs served by the API. Used to tell them apart from images in the recipe metadata. */
 const PHOTO_PREFIX = 'recipe-photo/';
+const REVIEWS_PREFIX = 'recipe-reviews/';
 /** Photos can be several MB on a mobile connection */
 const UPLOAD_TIMEOUT_MS = 60_000;
 
@@ -89,10 +94,16 @@ function withServerPhoto(recipe: Recipe, image: string | null | undefined): Reci
   return recipe;
 }
 
-/** Adds what only the list knows: the photo and when the file was last saved */
+/** Adds what only the list knows: the photo, when the file was last saved, who added it and the ratings */
 function withListInfo(recipe: Recipe, entry: ListEntry): Recipe {
   const withPhoto = withServerPhoto(recipe, entry.image);
-  return entry.modified ? { ...withPhoto, modifiedAt: entry.modified } : withPhoto;
+  const withTime = entry.modified ? { ...withPhoto, modifiedAt: entry.modified } : withPhoto;
+  return {
+    ...withTime,
+    addedBy: entry.added_by ?? undefined,
+    ratingAverage: entry.rating_average ?? undefined,
+    ratingCount: entry.rating_count ?? 0
+  };
 }
 
 /** Standard order: most recently saved first, then by name */
@@ -117,25 +128,13 @@ class CookApiService {
   private serverVersions = new Map<string, { text: string; etag: string }>();
 
   constructor() {
-    this.removeLegacyStorage();
+    this.removeLegacyCredentials();
     this.loadSettings();
   }
 
-  private removeLegacyStorage(): void {
+  private removeLegacyCredentials(): void {
     try {
-      for (const key of LEGACY_KEYS) localStorage.removeItem(key);
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key?.startsWith(LEGACY_DETAIL_PREFIX)) localStorage.removeItem(key);
-      }
-      // CookCLI paths ended in .cook, the API paths do not: keep favorites pointing at the same recipes
-      const favs = localStorage.getItem(STORAGE_KEYS.FAVORITES);
-      if (favs) {
-        const list: string[] = JSON.parse(favs);
-        if (list.some((id) => /\.cook$/i.test(id))) {
-          localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(list.map(cleanRecipePath)));
-        }
-      }
+      for (const key of LEGACY_CREDENTIAL_KEYS) localStorage.removeItem(key);
     } catch {
       // LocalStorage might be restricted
     }
@@ -509,7 +508,7 @@ class CookApiService {
   }
 
   private parseRecipe(text: string, path: string, etag: string | null): Recipe {
-    const recipe = normalizeServerRecipe(text, path);
+    const recipe = parseCooklangText(text, path);
     if (etag) recipe.etag = etag;
     return recipe;
   }
@@ -562,18 +561,20 @@ class CookApiService {
     if (fresh) return withListInfo(fresh, entry);
 
     // Download failed: show the entry with what the list knows
-    return {
-      id: entry.path,
-      path: entry.path,
-      name: entry.title,
-      folder: entry.path.includes('/') ? entry.path.split('/').slice(0, -1).join('/') : undefined,
-      metadata: {},
-      steps: [],
-      ingredients: [],
-      cookware: [],
-      image: entry.image ?? undefined,
-      modifiedAt: entry.modified || undefined
-    };
+    return withListInfo(
+      {
+        id: entry.path,
+        path: entry.path,
+        name: entry.title,
+        folder: entry.path.includes('/') ? entry.path.split('/').slice(0, -1).join('/') : undefined,
+        metadata: {},
+        steps: [],
+        ingredients: [],
+        cookware: [],
+        image: entry.image ?? undefined
+      },
+      entry
+    );
   }
 
   /**
@@ -861,6 +862,70 @@ class CookApiService {
 
     this.upsertCachedRecipe(updatedRecipe);
     return { status: 'saved', recipe: updatedRecipe, content };
+  }
+
+  /** Ratings and notes of all people for one recipe. Throws when the server cannot be reached. */
+  public async getReviews(recipePath: string): Promise<RecipeReviews> {
+    const path = cleanRecipePath(recipePath);
+    const res = await this.fetchApi(`${REVIEWS_PREFIX}${encodeRecipePath(path)}`);
+    if (!res.ok) throw new Error(await this.readErrorMessage(res));
+    return this.toRecipeReviews(await res.json());
+  }
+
+  /**
+   * Sets the signed-in person's rating and note. Both empty removes the review.
+   * Updates the cached list entry, so the average on the cards is right without a sync.
+   */
+  public async saveReview(
+    recipePath: string,
+    review: { rating?: number; note?: string }
+  ): Promise<RecipeReviews | { error: string }> {
+    if (!this.isLoggedIn()) return { error: 'Zum Bewerten bitte anmelden.' };
+    const path = cleanRecipePath(recipePath);
+    let res: Response;
+    try {
+      res = await this.fetchApi(`${REVIEWS_PREFIX}${encodeRecipePath(path)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: review.rating ?? null, note: review.note ?? null })
+      });
+    } catch {
+      return { error: 'Verbindung zum Server fehlgeschlagen. Die Bewertung wurde nicht gespeichert.' };
+    }
+    if (!res.ok) {
+      if (res.status === 401) {
+        this.clearSession();
+        return { error: 'Die Anmeldung ist abgelaufen. Bitte in den Einstellungen neu anmelden.' };
+      }
+      return { error: await this.readErrorMessage(res) };
+    }
+    const data = this.toRecipeReviews(await res.json());
+    this.updateCachedRatings(path, data);
+    return data;
+  }
+
+  private toRecipeReviews(data: {
+    reviews: Array<{ username: string; rating: number | null; note: string | null; updated_at: number }>;
+    rating_average: number | null;
+    rating_count: number;
+  }): RecipeReviews {
+    return {
+      reviews: data.reviews.map((r) => ({
+        username: r.username,
+        rating: r.rating ?? undefined,
+        note: r.note ?? undefined,
+        updatedAt: r.updated_at
+      })),
+      ratingAverage: data.rating_average ?? undefined,
+      ratingCount: data.rating_count
+    };
+  }
+
+  private updateCachedRatings(path: string, data: RecipeReviews): void {
+    const list = this.getCachedRecipes().map((r) =>
+      r.path === path ? { ...r, ratingAverage: data.ratingAverage, ratingCount: data.ratingCount } : r
+    );
+    this.setCachedRecipes(list);
   }
 
   /**

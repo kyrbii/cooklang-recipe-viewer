@@ -1,6 +1,5 @@
 from app.storage import etag, sniff_photo
 
-from .conftest import PASSWORD
 
 JPEG = b"\xff\xd8\xff\xe0" + b"jpeg-body"
 PNG = b"\x89PNG\r\n\x1a\n" + b"png-body"

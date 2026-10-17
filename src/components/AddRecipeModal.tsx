@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, FileText, Sparkles, CheckCircle2, AlertCircle, Tag, Loader2 } from 'lucide-react';
 import { cookApi, type ImportPayload } from '../services/cookApi';
 import type { Recipe } from '../types/cook';
-import { normalizeServerRecipe } from '../utils/cooklangParser';
+import { parseCooklangText } from '../utils/cooklangParser';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import type { ShareDraft } from '../utils/shareImport';
 import { slugify } from '../utils/recipeLink';
@@ -143,7 +143,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
   const previewRecipe = useMemo(() => {
     if (!cookContent.trim()) return null;
     try {
-      return normalizeServerRecipe(cookContent, recipeName || 'Preview');
+      return parseCooklangText(cookContent, recipeName || 'Preview');
     } catch {
       return null;
     }
@@ -180,7 +180,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         onRecipeSaved(saved);
       } else {
         // Fallback local normalization
-        const localNorm = normalizeServerRecipe(cookContent, result.path);
+        const localNorm = parseCooklangText(cookContent, result.path);
         onRecipeSaved(localNorm);
       }
 

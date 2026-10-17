@@ -2,6 +2,8 @@ import time
 
 from app.storage import etag
 
+from .conftest import USERNAME
+
 RECIPE = "---\ntitle: Linsensuppe\n---\n\nCook @lentils{200%g}.\n".encode()
 
 
@@ -32,7 +34,15 @@ def test_create_read_and_list(client, auth_headers):
     listed = client.get("/recipes").json()["recipes"]
     assert len(listed) == 1
     modified = listed[0].pop("modified")
-    assert listed[0] == {"path": "Suppen/Linsen", "title": "Linsensuppe", "etag": etag(RECIPE), "image": None}
+    assert listed[0] == {
+        "path": "Suppen/Linsen",
+        "title": "Linsensuppe",
+        "etag": etag(RECIPE),
+        "image": None,
+        "added_by": USERNAME,
+        "rating_average": None,
+        "rating_count": 0,
+    }
     assert isinstance(modified, int) and abs(modified / 1000 - time.time()) < 60
 
 

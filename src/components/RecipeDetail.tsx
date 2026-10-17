@@ -35,6 +35,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { useTimers } from '../context/useTimers';
 import { recipeShareUrl } from '../utils/recipeLink';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import { RecipeReviews } from './RecipeReviews';
 
 interface RecipeDetailProps {
   recipe: Recipe;
@@ -43,6 +44,8 @@ interface RecipeDetailProps {
   onEdit: () => void;
   /** Called with the path after the recipe was deleted on the server */
   onDeleted: (path: string) => void;
+  /** Called after the signed-in person rated the recipe, with the new average */
+  onReviewsChanged: (path: string, ratingAverage?: number, ratingCount?: number) => void;
 }
 
 function formatRemaining(totalSeconds: number): string {
@@ -56,7 +59,8 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   onBack,
   onOpenSettings,
   onEdit,
-  onDeleted
+  onDeleted,
+  onReviewsChanged
 }) => {
   const { timers, addTimer, startTimer, pauseTimer } = useTimers();
   const loginUser = useLoginUser();
@@ -414,6 +418,9 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             <h1 className="font-mela-serif text-3xl sm:text-4xl lg:text-4xl xl:text-5xl font-bold tracking-tight text-stone-900 dark:text-stone-50 leading-tight">
               {recipe.name}
             </h1>
+            {recipe.addedBy && (
+              <p className="-mt-2 text-sm text-stone-500 dark:text-stone-400">von {recipe.addedBy}</p>
+            )}
 
             {/* Recipe Description */}
             {recipe.metadata.description && (
@@ -583,6 +590,8 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
               </div>
             )}
           </div>
+
+          <RecipeReviews recipe={recipe} onReviewsChanged={onReviewsChanged} onOpenSettings={onOpenSettings} />
         </div>
 
         {/* Right Column (Desktop): Ingredients & Portions scaler on the right (natural continuous scroll) */}

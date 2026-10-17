@@ -79,6 +79,26 @@ export interface Recipe {
   etag?: string;
   /** When the recipe file was last saved on the server (ms since epoch), for "most recent first" */
   modifiedAt?: number;
+  /** Who added the recipe (login name), if recorded */
+  addedBy?: string;
+  /** Average of all ratings, if anyone rated the recipe */
+  ratingAverage?: number;
+  /** How many people rated the recipe */
+  ratingCount?: number;
+}
+
+/** One person's rating and note for a recipe */
+export interface RecipeReview {
+  username: string;
+  rating?: number;
+  note?: string;
+  updatedAt: number;
+}
+
+export interface RecipeReviews {
+  reviews: RecipeReview[];
+  ratingAverage?: number;
+  ratingCount: number;
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';

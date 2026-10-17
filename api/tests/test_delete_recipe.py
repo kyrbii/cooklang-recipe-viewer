@@ -1,6 +1,5 @@
 from app.storage import etag
 
-from .conftest import PASSWORD
 
 V1 = b"version one"
 V2 = b"version two"

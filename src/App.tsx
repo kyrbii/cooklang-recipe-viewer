@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { Clock, Play, Pause, X } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from './types/cook';
 import { compareRecipes, cookApi } from './services/cookApi';
@@ -11,6 +11,7 @@ import { TimerProvider } from './context/TimerContext';
 import { useTimers } from './context/useTimers';
 import { findRecipeByKey, recipeHash, recipeKeyFromHash } from './utils/recipeLink';
 import { shareDraftFromParams, type ShareDraft } from './utils/shareImport';
+import { DEFAULT_FILTER, type RecipeFilter } from './utils/recipeFilter';
 
 function formatRemaining(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -28,6 +29,10 @@ const MelaApp: React.FC = () => {
     shareDraftFromParams(new URLSearchParams(window.location.search))
   );
   const [isAddModalOpen, setIsAddModalOpen] = useState(() => shareDraft !== null);
+  // Suche und Filter liegen hier, damit sie den Weg in ein Rezept und zurück überstehen
+  const [listFilter, setListFilter] = useState<RecipeFilter>(DEFAULT_FILTER);
+  // Scroll-Position der Liste, bevor ein Rezept geöffnet wurde
+  const listScrollRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (window.location.search) {
@@ -44,6 +49,10 @@ const MelaApp: React.FC = () => {
   const openRecipe = useCallback((recipe: Recipe) => {
     setSelectedRecipe(recipe);
     const target = recipeHash(recipe);
+    // Nur von der Liste aus merken, nicht beim Wechsel zwischen zwei Rezepten
+    if (recipeKeyFromHash(window.location.hash) === null) {
+      listScrollRef.current = window.scrollY;
+    }
     if (window.location.hash !== target) {
       window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${target}`);
     }
@@ -73,11 +82,28 @@ const MelaApp: React.FC = () => {
       ? findRecipeByKey(recipes, recipeKeyFromHash(window.location.hash)!)
       : null);
 
-  // Ein Rezept beginnt immer oben, auch wenn die Liste vorher weiter unten gescrollt war
+  // Ein Rezept beginnt oben. Zurück zur Liste springt an die Stelle, an der das Rezept geöffnet wurde.
   const shownRecipeKey = shownRecipe?.path ?? null;
   useLayoutEffect(() => {
-    if (shownRecipeKey) window.scrollTo({ top: 0, behavior: 'instant' });
+    if (shownRecipeKey) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } else if (listScrollRef.current !== null) {
+      window.scrollTo({ top: listScrollRef.current, behavior: 'instant' });
+      listScrollRef.current = null;
+    }
   }, [shownRecipeKey]);
+
+  // Die Liste stellt die Position selbst wieder her, der Browser soll nicht dazwischenfunken
+  useEffect(() => {
+    window.history.scrollRestoration = 'manual';
+  }, []);
+
+  // Bewertungen geändert: Durchschnitt und Anzahl in der Liste und im offenen Rezept aktualisieren
+  const handleReviewsChanged = useCallback((path: string, ratingAverage?: number, ratingCount?: number) => {
+    const patch = (r: Recipe) => (r.path === path ? { ...r, ratingAverage, ratingCount } : r);
+    setRecipes((prev) => prev.map(patch));
+    setSelectedRecipe((current) => (current ? patch(current) : current));
+  }, []);
 
   // Initialize theme and status listeners
   useEffect(() => {
@@ -131,6 +157,7 @@ const MelaApp: React.FC = () => {
             onBack={closeRecipe}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onEdit={() => setEditingRecipe(shownRecipe)}
+            onReviewsChanged={handleReviewsChanged}
             onDeleted={(path) => {
               setRecipes((prev) => prev.filter((r) => r.path !== path));
               closeRecipe();
@@ -146,6 +173,8 @@ const MelaApp: React.FC = () => {
             onSelectRecipe={openRecipe}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onAddRecipe={() => setIsAddModalOpen(true)}
+            filter={listFilter}
+            onFilterChange={setListFilter}
           />
         )}
       </main>

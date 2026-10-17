@@ -11,12 +11,24 @@ import {
   List as ListIcon,
   Heart,
   ArrowUp,
-  UserRound
+  UserRound,
+  ChevronDown,
+  Star
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import { useLoginUser } from '../hooks/useLoginUser';
+import {
+  ALL,
+  DEFAULT_FILTER,
+  categoryOptions,
+  creatorOptions,
+  filterRecipes,
+  formatRating,
+  isFilterActive,
+  type RecipeFilter
+} from '../utils/recipeFilter';
 
 interface RecipeListProps {
   recipes: Recipe[];
@@ -27,6 +39,8 @@ interface RecipeListProps {
   onSelectRecipe: (recipe: Recipe) => void;
   onOpenSettings: () => void;
   onAddRecipe: () => void;
+  filter: RecipeFilter;
+  onFilterChange: (filter: RecipeFilter) => void;
 }
 
 export const RecipeList: React.FC<RecipeListProps> = ({
@@ -37,11 +51,14 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   onSync,
   onSelectRecipe,
   onOpenSettings,
-  onAddRecipe
+  onAddRecipe,
+  filter,
+  onFilterChange
 }) => {
   const loginUser = useLoginUser();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Alle');
+  const searchQuery = filter.query;
+  const selectedCategory = filter.category;
+  const setSearchQuery = (query: string) => onFilterChange({ ...filter, query });
   const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -79,67 +96,11 @@ export const RecipeList: React.FC<RecipeListProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Derive categories from tags, including Favoriten if any exist
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    recipes.forEach((r) => {
-      if (Array.isArray(r.metadata.tags)) {
-        r.metadata.tags.forEach((t) => set.add(t));
-      } else if (typeof r.metadata.tags === 'string') {
-        r.metadata.tags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .forEach((t) => set.add(t));
-      }
-    });
-    const sorted = Array.from(set).sort();
-    const result = ['Alle'];
-    if (favorites.length > 0) {
-      result.push('Favoriten');
-    }
-    return [...result, ...sorted];
-  }, [recipes, favorites]);
+  const categories = useMemo(() => categoryOptions(recipes, favorites.length), [recipes, favorites.length]);
+  const creators = useMemo(() => creatorOptions(recipes), [recipes]);
+  const filteredRecipes = useMemo(() => filterRecipes(recipes, filter, favorites), [recipes, filter, favorites]);
 
-  // Filter recipes
-  const filteredRecipes = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-
-    return recipes.filter((r) => {
-      // Favorites filter
-      if (selectedCategory === 'Favoriten') {
-        if (!favorites.includes(r.id)) return false;
-      } else if (selectedCategory !== 'Alle') {
-        // Category filter
-        let inTags = false;
-        if (Array.isArray(r.metadata.tags)) {
-          inTags = r.metadata.tags.some(
-            (t) => t.toLowerCase() === selectedCategory.toLowerCase()
-          );
-        } else if (typeof r.metadata.tags === 'string') {
-          inTags = r.metadata.tags
-            .toLowerCase()
-            .split(',')
-            .map((t) => t.trim())
-            .includes(selectedCategory.toLowerCase());
-        }
-        if (!inTags) return false;
-      }
-
-      // Query filter
-      if (q) {
-        const titleMatch = r.name.toLowerCase().includes(q);
-        const descMatch = (r.metadata.description as string)?.toLowerCase()?.includes(q);
-        const tagMatch =
-          Array.isArray(r.metadata.tags) &&
-          r.metadata.tags.some((t) => t.toLowerCase().includes(q));
-        const authorMatch = (r.metadata.author as string)?.toLowerCase()?.includes(q);
-        return titleMatch || descMatch || tagMatch || authorMatch;
-      }
-
-      return true;
-    });
-  }, [recipes, searchQuery, selectedCategory, favorites]);
+  const filterActive = isFilterActive(filter);
 
   return (
     <div className="flex-1 flex flex-col max-w-xl md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-safe pb-safe font-mela-sans">
@@ -277,29 +238,41 @@ export const RecipeList: React.FC<RecipeListProps> = ({
         </div>
       </div>
 
-      {/* Category Pills (Horizontal scroll) */}
-      {categories.length > 1 && (
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 mb-6 sm:mb-7">
-          {categories.slice(0, 16).map((cat) => {
-            const isSelected = selectedCategory === cat;
-            return (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-2xs'
-                    : 'bg-stone-200/60 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200 hover:bg-stone-300/60'
-                }`}
-              >
-                {cat === 'Favoriten' && (
-                  <Heart className={`w-3 h-3 ${isSelected ? 'fill-current' : 'fill-[#DE5D4E] text-[#DE5D4E]'}`} />
-                )}
-                <span>{cat}</span>
-                {cat === 'Favoriten' && <span className="opacity-75">({favorites.length})</span>}
-              </button>
-            );
-          })}
+      {/* Filter dropdowns: category and person */}
+      {recipes.length > 0 && (
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 mb-6 sm:mb-7">
+          <FilterSelect
+            label="Kategorie"
+            value={selectedCategory}
+            onChange={(category) => onFilterChange({ ...filter, category })}
+            options={categories.map((cat) => ({
+              value: cat,
+              label:
+                cat === ALL
+                  ? 'Alle Kategorien'
+                  : cat === 'Favoriten'
+                  ? `Favoriten (${favorites.length})`
+                  : cat
+            }))}
+          />
+          <FilterSelect
+            label="Von"
+            value={filter.creator}
+            onChange={(creator) => onFilterChange({ ...filter, creator })}
+            options={[
+              { value: ALL, label: 'Alle Personen' },
+              ...creators.map((name) => ({ value: name, label: name || 'Ohne Angabe' }))
+            ]}
+          />
+          {filterActive && (
+            <button
+              type="button"
+              onClick={() => onFilterChange({ ...DEFAULT_FILTER, query: '' })}
+              className="col-span-2 justify-self-start text-xs font-medium text-[#DE5D4E] hover:underline cursor-pointer"
+            >
+              Filter zurücksetzen
+            </button>
+          )}
         </div>
       )}
 
@@ -401,8 +374,6 @@ const RecipeCard: React.FC<{
       ? recipe.metadata.tags[0]
       : recipe.metadata.tags) ||
     'Rezept';
-  const author = (recipe.metadata.author as string) || (recipe.metadata.source as string);
-
   return (
     <div
       onClick={onClick}
@@ -453,9 +424,10 @@ const RecipeCard: React.FC<{
       {/* Content Body with generous margins & padding */}
       <div className="p-5 sm:p-5.5 flex-1 flex flex-col justify-between">
         <div>
-          <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-2 group-hover:text-[#DE5D4E] transition-colors mb-2">
+          <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-2 group-hover:text-[#DE5D4E] transition-colors mb-1">
             {recipe.name}
           </h2>
+          <CreatorLine recipe={recipe} className="block truncate text-[11px] text-stone-500 dark:text-stone-400 mb-2" />
 
           {/* Description snippet */}
           {recipe.metadata.description && (
@@ -476,11 +448,7 @@ const RecipeCard: React.FC<{
             <span className="text-[11px] text-stone-400 dark:text-stone-500">Rezept</span>
           )}
 
-          {author && (
-            <span className="truncate max-w-[150px] text-[11px] text-stone-500 dark:text-stone-400">
-              {author}
-            </span>
-          )}
+          <RatingBadge recipe={recipe} />
         </div>
       </div>
     </div>
@@ -503,8 +471,6 @@ const RecipeRow: React.FC<{
       ? recipe.metadata.tags[0]
       : recipe.metadata.tags) ||
     'Rezept';
-  const author = (recipe.metadata.author as string) || (recipe.metadata.source as string);
-
   return (
     <div
       onClick={onClick}
@@ -549,11 +515,8 @@ const RecipeRow: React.FC<{
             </span>
           )}
 
-          {author && (
-            <span className="truncate hidden sm:inline text-stone-400 dark:text-stone-500 text-xs">
-              {author}
-            </span>
-          )}
+          <CreatorLine recipe={recipe} className="truncate hidden sm:inline text-stone-400 dark:text-stone-500 text-xs" />
+          <RatingBadge recipe={recipe} />
         </div>
 
         {recipe.metadata.description && (
@@ -581,5 +544,54 @@ const RecipeRow: React.FC<{
         />
       </button>
     </div>
+  );
+};
+
+/** Native select, styled like the search field. Works well on phones and keeps long lists manageable. */
+const FilterSelect: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}> = ({ label, value, onChange, options }) => (
+  <label className="relative block min-w-0">
+    <span className="sr-only">{label}</span>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full h-11 pl-3.5 pr-9 rounded-xl bg-stone-200/50 dark:bg-stone-800/60 text-stone-900 dark:text-stone-100 text-sm truncate appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/30 focus:bg-white dark:focus:bg-[#1A1816] transition-all"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+  </label>
+);
+
+/** "von Name" and, if the recipe has one, the original author from the recipe text */
+const CreatorLine: React.FC<{ recipe: Recipe; className: string }> = ({ recipe, className }) => {
+  const source = (recipe.metadata.author as string) || (recipe.metadata.source as string);
+  if (!recipe.addedBy && !source) return null;
+  return (
+    <span className={className}>
+      {recipe.addedBy && <>von {recipe.addedBy}</>}
+      {recipe.addedBy && source && <> · </>}
+      {source && <>{source}</>}
+    </span>
+  );
+};
+
+/** Average rating with the number of ratings, or nothing when nobody rated the recipe yet */
+const RatingBadge: React.FC<{ recipe: Recipe }> = ({ recipe }) => {
+  if (!recipe.ratingCount || recipe.ratingAverage === undefined) return null;
+  return (
+    <span className="inline-flex items-center gap-1 shrink-0 font-medium text-stone-700 dark:text-stone-300" title={`${recipe.ratingCount} Bewertungen`}>
+      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+      <span>{formatRating(recipe.ratingAverage)}</span>
+      <span className="text-stone-400 dark:text-stone-500 font-normal">({recipe.ratingCount})</span>
+    </span>
   );
 };

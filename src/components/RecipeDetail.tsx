@@ -336,15 +336,17 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             )}
 
             {/* Edit Recipe Button */}
-            <button
-              id="recipe-edit-button"
-              onClick={onEdit}
-              className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition-all cursor-pointer shadow-2xs"
-              title="Rezeptdatei (.cook) bearbeiten"
-            >
-              <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
-              <span>Bearbeiten</span>
-            </button>
+            {loginUser && (
+              <button
+                id="recipe-edit-button"
+                onClick={onEdit}
+                className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition-all cursor-pointer shadow-2xs"
+                title="Rezeptdatei (.cook) bearbeiten"
+              >
+                <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
+                <span>Bearbeiten</span>
+              </button>
+            )}
 
             {/* Cook Mode (Screen Wake Lock) Button */}
             <button

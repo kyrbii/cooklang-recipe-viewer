@@ -591,7 +591,10 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
             )}
           </div>
 
-          <RecipeReviews recipe={recipe} onReviewsChanged={onReviewsChanged} onOpenSettings={onOpenSettings} />
+          {/* On phones the ratings come after the steps, so cooking stays the first thing on the page */}
+          <div className="order-4 lg:order-none">
+            <RecipeReviews recipe={recipe} onReviewsChanged={onReviewsChanged} onOpenSettings={onOpenSettings} />
+          </div>
         </div>
 
         {/* Right Column (Desktop): Ingredients & Portions scaler on the right (natural continuous scroll) */}

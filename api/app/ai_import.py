@@ -14,6 +14,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from .frontmatter import FRONT_MATTER, to_front_matter
+
 log = logging.getLogger(__name__)
 
 MAX_PAGE = 2 * 1024 * 1024
@@ -232,47 +234,13 @@ def find_page_image(html: str, page_url: str) -> str | None:
     return None
 
 
-_LEGACY_LINE = re.compile(r"^>>\s*([^:]+?)\s*:\s*(.*?)\s*$")
-_FRONT_MATTER = re.compile(r"\A---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|\Z)")
-
-
-def _yaml_value(value: str) -> str:
-    """Plain YAML scalar, or a double-quoted one when plain would be misread."""
-    if value and not re.search(r"(^[\s\-?:,\[\]{}#&*!|>'\"%@`])|(: )|( #)|(\s$)", value):
-        return value
-    return json.dumps(value, ensure_ascii=False)
-
-
-def to_front_matter(cooklang: str) -> str:
-    """Moves leading legacy `>> key: value` lines into YAML front matter (the `>>` syntax is deprecated).
-
-    Text that already has front matter, or no leading `>>` lines, is returned unchanged.
-    """
-    if _FRONT_MATTER.match(cooklang):
-        return cooklang
-    lines = cooklang.split("\n")
-    entries: list[tuple[str, str]] = []
-    body_start = 0
-    for index, line in enumerate(lines):
-        match = _LEGACY_LINE.match(line)
-        if match:
-            entries.append((match.group(1), match.group(2)))
-            body_start = index + 1
-        elif line.strip():
-            break
-    if not entries:
-        return cooklang
-    block = ["---", *(f"{key}: {_yaml_value(value)}" for key, value in entries), "---"]
-    return "\n".join(block + lines[body_start:])
-
-
 def with_image(cooklang: str, image_url: str | None) -> str:
     """Sets the `image:` front matter entry, replacing an existing one."""
     if not image_url:
         return cooklang
     entry = f"image: {json.dumps(image_url, ensure_ascii=False)}"
     cooklang = to_front_matter(cooklang)
-    match = _FRONT_MATTER.match(cooklang)
+    match = FRONT_MATTER.match(cooklang)
     if not match:
         return f"---\n{entry}\n---\n{cooklang}"
     kept = [l for l in match.group(1).split("\n") if not re.match(r"^image\s*:", l, re.IGNORECASE)]

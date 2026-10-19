@@ -897,6 +897,7 @@ function renderMelaStepItems(
   pauseTimer: (id: string) => void,
   startTimer: (id: string) => void
 ) {
+  let unnamedTimers = 0;
   return items.map((item, idx) => {
     if (item.type === 'text') {
       return <span key={idx}>{item.value}</span>;
@@ -946,11 +947,14 @@ function renderMelaStepItems(
     }
 
     if (item.type === 'timer') {
-      const active = timers.find(
-        (t) =>
-          t.stepNumber === stepNumber &&
-          (t.name === item.name || t.name.includes(item.name || 'Timer'))
-      );
+      // The timer list identifies a timer by step and name. Unnamed timers get a generated name,
+      // numbered when a step has several, so each one finds its own running timer again.
+      let timerName = item.name;
+      if (!timerName) {
+        unnamedTimers += 1;
+        timerName = `${recipeName} - Schritt ${stepNumber}${unnamedTimers > 1 ? ` (${unnamedTimers})` : ''}`;
+      }
+      const active = timers.find((t) => t.stepNumber === stepNumber && t.name === timerName);
 
       if (active) {
         const isFinished = active.remainingSeconds === 0;
@@ -983,7 +987,7 @@ function renderMelaStepItems(
           key={idx}
           onClick={() => {
             addTimer(
-              item.name || `${recipeName} - Schritt ${stepNumber}`,
+              timerName,
               item.totalSeconds || 60,
               undefined,
               stepNumber

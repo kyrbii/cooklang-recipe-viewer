@@ -50,7 +50,7 @@ Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` miss
 - Stored as a sidecar file with the recipe's name: `Baguette.cook` and `Baguette.jpg`. One photo per recipe; setting a new one replaces the old file, even if the extension changes.
 - The file type comes from the file signature (JPEG, PNG, WebP), never from the file name. Anything else gets `415`.
 - Photos can be replaced without `If-Match`: the last upload wins. Recipe text still uses the conflict check.
-- `GET /recipes` gives each recipe an `image` URL with a version (`recipe-photo/…?v=…`) that changes with the photo, so browsers don't show stale images. A photo overrides `>> image:` from the recipe text.
+- `GET /recipes` gives each recipe an `image` URL with a version (`recipe-photo/…?v=…`) that changes with the photo, so browsers don't show stale images. A photo overrides `image:` from the recipe text.
 - Deleting a recipe deletes its photo.
 - HEIC (iPhone default) is not accepted by the server. The app's file picker asks for JPEG, PNG or WebP.
 
@@ -58,9 +58,9 @@ Status codes: `400` invalid path, non-UTF-8 body or bad import input, `401` miss
 
 Ported from the former `ai-import/server.mjs` (Node). Same prompt, limits, timeouts and German messages.
 
-- Output follows the official Cooklang syntax: `>>` metadata lines, `@?` for optional ingredients, `== Section ==`, `> ` for tips and notes, fractions such as `1/2` instead of `0.5`. The prompt lives in `app/ai_import.py` (`SYSTEM`).
+- Output follows the official Cooklang syntax: YAML front matter for metadata (the `>>` syntax is deprecated since cooklang-rs 0.14.0, and `to_front_matter` converts it if the model still writes it), no ingredient list at the top (amounts go inline at the step that uses them), `@?` for optional ingredients, `== Section ==`, `> ` for tips and notes, fractions such as `1/2` instead of `0.5`. The prompt lives in `app/ai_import.py` (`SYSTEM`).
 - Input: `{url}` (web page), `{text}` (max 50 000 characters) or `{image, mimeType}` (base64, JPG/PNG/WebP/HEIC). Body max `MAX_IMPORT_BYTES` (12 MB).
-- Web pages: JSON-LD, meta tags and page text go to Gemini. The title image (schema.org `Recipe.image`, then `og:image`/`twitter:image`) is written as a `>> image:` metadata line.
+- Web pages: JSON-LD, meta tags and page text go to Gemini. The title image (schema.org `Recipe.image`, then `og:image`/`twitter:image`) is written as an `image:` front matter entry.
 - SSRF protection: only http/https, no credentials in the URL, every resolved address must be public (`ipaddress.is_global`, IPv4-mapped IPv6 unwrapped). Redirects are followed by hand (max 4), each target is checked again. Instagram is refused with a hint (422).
 - Needs a login token: every call uses Gemini quota.
 - Config: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). The key is never logged.

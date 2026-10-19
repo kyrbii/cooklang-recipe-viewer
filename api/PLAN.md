@@ -64,6 +64,7 @@ Ported from the former `ai-import/server.mjs` (Node). Same prompt, limits, timeo
 - SSRF protection: only http/https, no credentials in the URL, every resolved address must be public (`ipaddress.is_global`, IPv4-mapped IPv6 unwrapped). Redirects are followed by hand (max 4), each target is checked again. Instagram is refused with a hint (422).
 - Needs a login token: every call uses Gemini quota.
 - Config: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). The key is never logged.
+- Daily recipes (`app/daily.py`): with `KPTNCOOK_API_KEY` set, the first `GET /daily` of the day fetches today's KptnCook picks, converts them to Cooklang and keeps them 3 days in `DAILY_DIR` (default `daily/` next to the recipes). `POST /daily/{id}/save` (login) copies one into the recipes. Without a key or on any failure the list is empty.
 - Known limit (same as the Node version): DNS is resolved for the check and again by the HTTP client, so a DNS rebinding attack between the two lookups is not prevented.
 
 ## Titles in the list

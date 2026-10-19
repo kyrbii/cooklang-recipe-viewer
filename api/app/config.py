@@ -40,6 +40,9 @@ class Settings:
     max_import_bytes: int = 12 * 1024 * 1024
     # Recipe photos from a phone camera: a few MB, 10 MB leaves room
     max_photo_bytes: int = 10 * 1024 * 1024
+    # Daily recipes from KptnCook: off without a key. The folder defaults to "daily" next to the recipes.
+    kptncook_api_key: str = field(default="", repr=False)
+    daily_dir: Path | None = None
 
 
 def load_settings() -> Settings:
@@ -55,4 +58,6 @@ def load_settings() -> Settings:
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         max_import_bytes=int(os.environ.get("MAX_IMPORT_BYTES", str(12 * 1024 * 1024))),
         max_photo_bytes=int(os.environ.get("MAX_PHOTO_BYTES", str(10 * 1024 * 1024))),
+        kptncook_api_key=os.environ.get("KPTNCOOK_API_KEY", ""),
+        daily_dir=_resolve(os.environ["DAILY_DIR"]) if os.environ.get("DAILY_DIR") else None,
     )

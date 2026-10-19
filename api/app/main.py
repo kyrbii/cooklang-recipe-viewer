@@ -2,9 +2,13 @@
 
 import asyncio
 import json
+import re
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import asdict
+from datetime import date
+from pathlib import Path
+from urllib.parse import quote
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -13,12 +17,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import ai_import, auth, db, recipe_meta
+from . import ai_import, auth, daily, db, recipe_meta
 from .config import Settings, load_settings
-from pathlib import Path
-from urllib.parse import quote
-
 from .storage import MEDIA_TYPES, InvalidPath, RecipeStore, etag, if_match_satisfied, sniff_photo
+from .titles import recipe_title
 
 TEXT = "text/plain; charset=utf-8"
 
@@ -89,6 +91,17 @@ class RecipeList(BaseModel):
 class SaveResponse(BaseModel):
     path: str
     etag: str
+
+
+class DailyItem(BaseModel):
+    id: str
+    title: str
+    # Relative URL of the photo, None without one
+    image: str | None = None
+
+
+class DailyList(BaseModel):
+    recipes: list[DailyItem]
 
 
 class ImportResponse(BaseModel):
@@ -356,6 +369,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not removed:
             raise HTTPException(404, "no photo")
         return Response(status_code=204)
+
+    daily_store = daily.DailyStore(settings.daily_dir or settings.recipe_dir.parent / "daily")
+    daily_lock = asyncio.Lock()
+
+    def daily_entry(daily_id: str):
+        found = daily_store.find(daily_id)
+        if found is None:
+            raise HTTPException(404, "daily recipe not found")
+        return found
+
+    @app.get("/daily", response_model=DailyList)
+    async def list_daily():
+        """Today's recipes from KptnCook. Fetched on the first request of the day; empty if that fails or no key is set."""
+        today = date.today()
+        if settings.kptncook_api_key and daily_store.refresh_due(today):
+            async with daily_lock:
+                # Checked again: another request may have fetched while this one waited
+                if daily_store.refresh_due(today):
+                    await run_in_threadpool(daily.refresh, daily_store, settings.kptncook_api_key, today)
+        return DailyList(
+            recipes=[
+                DailyItem(
+                    id=e.id,
+                    title=e.title,
+                    image=f"daily-photo/{e.id}?v={e.photo_version}" if e.photo_version else None,
+                )
+                for e in daily_store.entries(today)
+            ]
+        )
+
+    @app.get("/daily/{daily_id}")
+    def get_daily(daily_id: str):
+        file, _ = daily_entry(daily_id)
+        data = file.read_bytes()
+        return Response(data, media_type=TEXT, headers={"ETag": etag(data), "Cache-Control": "no-cache"})
+
+    @app.get("/daily-photo/{daily_id}")
+    def get_daily_photo(daily_id: str):
+        file, day = daily_entry(daily_id)
+        photo = daily_store.photo(file.stem, day)
+        if photo is None:
+            raise HTTPException(404, "no photo")
+        return Response(photo.read_bytes(), media_type=MEDIA_TYPES[photo.suffix], headers={"Cache-Control": "no-cache"})
+
+    @app.post("/daily/{daily_id}/save", response_model=SaveResponse, status_code=201)
+    async def save_daily(daily_id: str, conn: Conn, user: Annotated[str, Depends(require_user)]):
+        """Copies a daily recipe (and its photo) into the recipe folder, recorded as added by the signed-in person."""
+        file, day = daily_entry(daily_id)
+        data = file.read_bytes()
+        title = recipe_title(data.decode("utf-8", errors="replace"), daily_id)
+        base = re.sub(r"[\\/\x00-\x1f\x7f]", " ", title).strip(" .") or daily_id
+        photo = daily_store.photo(file.stem, day)
+        async with write_lock:
+            clean, target, n = base, None, 1
+            while True:
+                clean, target = resolve(clean)
+                if not target.exists():
+                    break
+                n += 1
+                clean = f"{base} {n}"
+            await run_in_threadpool(store.write_atomic, target, data)
+            if photo is not None:
+                await run_in_threadpool(store.write_photo, target, photo.read_bytes(), photo.suffix)
+            recipe_meta.set_creator(conn, clean, user)
+        return SaveResponse(path=clean, etag=etag(data))
 
     @app.post("/import", response_model=ImportResponse)
     async def import_recipe(request: Request, _user: Annotated[str, Depends(require_user)]):

@@ -27,6 +27,8 @@ services:
     environment:
       ALLOWED_ORIGINS: ${PUBLIC_APP_URL:?set PUBLIC_APP_URL in .env}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      KPTNCOOK_API_KEY: ${KPTNCOOK_API_KEY:-}
+      DAILY_DIR: /data/daily
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       TOKEN_TTL_DAYS: ${TOKEN_TTL_DAYS:-30}
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}

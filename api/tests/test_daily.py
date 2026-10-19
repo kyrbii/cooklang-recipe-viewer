@@ -137,3 +137,14 @@ def test_save_needs_login_and_copies(kptn, auth_headers):
     assert listed["added_by"] == "tester"
     # Saving again never overwrites
     assert client.post(url, headers=auth_headers).json()["path"] == "Cremige Pasta 2"
+
+
+def test_fetch_failures_return_nothing(monkeypatch):
+    import http.client
+
+    def boom(*args, **kwargs):
+        raise http.client.InvalidURL("bad")
+
+    monkeypatch.setattr(daily.urllib.request, "urlopen", boom)
+    assert daily.fetch_today("<your key>") == []
+    assert daily.fetch_photo("https://img.test/x.jpg", "k") is None

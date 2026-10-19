@@ -5,7 +5,9 @@ copies it into the recipe folder. The source is KptnCook's unofficial mobile API
 fails quietly: no key, no network or a changed response just means no daily recipes.
 """
 
+import http.client
 import json
+import logging
 import re
 import shutil
 import time
@@ -14,6 +16,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 from .frontmatter import yaml_value
 from .storage import MEDIA_TYPES, etag, sniff_photo
@@ -25,6 +28,8 @@ KEEP_DAYS = 3
 # After a failed attempt, wait this long before asking the API again
 RETRY_SECONDS = 3600
 
+log = logging.getLogger(__name__)
+_FETCH_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _DATE_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HEADERS = {
@@ -264,9 +269,10 @@ def _get(url: str, headers: dict, limit: int, timeout: float = 20) -> bytes:
 def fetch_today(api_key: str) -> list[dict]:
     """Today's recipes as KptnCook JSON; an empty list on any failure."""
     try:
-        data = _get(f"{API_URL}/recipes/de/{time.time()}?kptnkey={api_key}", _HEADERS, 10 * 1024 * 1024)
+        data = _get(f"{API_URL}/recipes/de/{time.time()}?kptnkey={quote(api_key, safe='')}", _HEADERS, 10 * 1024 * 1024)
         payload = json.loads(data)
-    except (urllib.error.URLError, OSError, ValueError):
+    except _FETCH_ERRORS as exc:
+        log.warning("KptnCook daily fetch failed: %s", type(exc).__name__)
         return []
     if isinstance(payload, dict):
         payload = payload.get("recipes") or []
@@ -277,8 +283,9 @@ def fetch_photo(url: str, api_key: str) -> tuple[bytes, str] | None:
     if not url.startswith("https://"):
         return None
     try:
-        data = _get(f"{url}?kptnkey={api_key}", _HEADERS, MAX_PHOTO_BYTES)
-    except (urllib.error.URLError, OSError, ValueError):
+        data = _get(f"{url}?kptnkey={quote(api_key, safe='')}", _HEADERS, MAX_PHOTO_BYTES)
+    except _FETCH_ERRORS as exc:
+        log.warning("KptnCook photo fetch failed: %s", type(exc).__name__)
         return None
     sniffed = sniff_photo(data)
     return (data, sniffed[0]) if sniffed else None

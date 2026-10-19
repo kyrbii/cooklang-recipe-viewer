@@ -19,6 +19,7 @@ const STORAGE_KEYS = {
   TOKEN_EXPIRES: 'cook_api_token_expires',
   WAKE_LOCK: 'cook_wake_lock_enabled',
   THEME: 'cook_theme',
+  LIST_VIEW: 'cook_list_view',
   RECIPES_CACHE: 'cook_recipes_cache_v6',
   RECIPE_DETAIL_PREFIX: 'cook_recipe_detail_v6_',
   FAVORITES: 'cook_favorites',
@@ -345,6 +346,22 @@ class CookApiService {
       return val !== null ? val === 'true' : true;
     } catch {
       return true;
+    }
+  }
+
+  public getListView(): 'grid' | 'list' {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.LIST_VIEW) === 'list' ? 'list' : 'grid';
+    } catch {
+      return 'grid';
+    }
+  }
+
+  public setListView(view: 'grid' | 'list'): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LIST_VIEW, view);
+    } catch {
+      // Ignore
     }
   }
 

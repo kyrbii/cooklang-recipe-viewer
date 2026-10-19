@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sun, Moon, CheckCircle2, Lock, LogOut, LogIn, Trash2, ShieldCheck } from 'lucide-react';
+import { X, RefreshCw, Sun, Moon, CheckCircle2, Lock, LogOut, LogIn, Trash2, ShieldCheck } from 'lucide-react';
 import { cookApi } from '../services/cookApi';
 import { useLoginUser } from '../hooks/useLoginUser';
 import { LoginDialog } from './LoginDialog';
@@ -11,9 +11,11 @@ interface SettingsSheetProps {
   isOpen: boolean;
   onClose: () => void;
   status: ConnectionStatus;
+  isSyncing: boolean;
+  onSync: () => void;
 }
 
-export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, status }) => {
+export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, status, isSyncing, onSync }) => {
   const loggedInAs = useLoginUser();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -43,7 +45,13 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, s
   // otherwise trap their fixed positioning
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm transition-opacity">
+      {/* Tapping the blurred backdrop closes the sheet */}
+      <div
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm transition-opacity"
+      >
         <div className="w-full max-w-lg bg-[#FAF8F5] dark:bg-[#1A1816] rounded-t-3xl sm:rounded-2xl shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden max-h-[90dvh] flex flex-col pb-safe animate-slideUp">
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800">
@@ -72,6 +80,23 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, s
                 <span className={`w-1.5 h-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-500' : 'bg-stone-400'}`} />
                 <span>{status === 'connected' ? 'Verbunden' : status === 'checking' ? 'Prüfe...' : 'Offline'}</span>
               </span>
+            </div>
+
+            {/* Synchronisieren */}
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="text-sm font-semibold text-stone-800 dark:text-stone-200">Synchronisieren</span>
+                <p className="text-xs text-stone-500">Rezepte mit dem Server abgleichen</p>
+              </div>
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={isSyncing}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-medium cursor-pointer active:scale-95 transition-transform disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-[#DE5D4E]' : 'text-stone-500'}`} />
+                <span>{isSyncing ? 'Synchronisiere…' : 'Jetzt synchronisieren'}</span>
+              </button>
             </div>
 
             {/* Konto */}

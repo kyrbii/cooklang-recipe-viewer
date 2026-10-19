@@ -1,17 +1,17 @@
 import type { Recipe } from '../types/cook';
 
-/** 'Alle' means no filter. For the person filter, '' means "no creator recorded". */
-export const ALL = 'Alle';
+/** For the person filter, '' means "no creator recorded". */
 export const FAVORITES = 'Favoriten';
 export const NO_CREATOR = '';
 
+/** Category and creator are multi-select: an empty list means no filter, several entries match any of them. */
 export interface RecipeFilter {
   query: string;
-  category: string;
-  creator: string;
+  category: string[];
+  creator: string[];
 }
 
-export const DEFAULT_FILTER: RecipeFilter = { query: '', category: ALL, creator: ALL };
+export const DEFAULT_FILTER: RecipeFilter = { query: '', category: [], creator: [] };
 
 /** Average rating as German text, e.g. "4,5" */
 export const formatRating = (average: number) => average.toFixed(1).replace('.', ',');
@@ -24,10 +24,10 @@ export function tagsOf(recipe: Recipe): string[] {
   return [];
 }
 
-/** Category dropdown: all, favorites (only once there are some), then every tag in German alphabetical order */
+/** Category dropdown: favorites (only once there are some), then every tag in German alphabetical order */
 export function categoryOptions(recipes: Recipe[], favoriteCount: number): string[] {
   const tags = [...new Set(recipes.flatMap(tagsOf))].sort((a, b) => a.localeCompare(b, 'de'));
-  return [ALL, ...(favoriteCount > 0 ? [FAVORITES] : []), ...tags];
+  return [...(favoriteCount > 0 ? [FAVORITES] : []), ...tags];
 }
 
 /** Person dropdown: everyone who added a recipe, plus NO_CREATOR if some recipe has no recorded creator */
@@ -43,20 +43,22 @@ export function creatorOptions(recipes: Recipe[]): string[] {
 }
 
 export const isFilterActive = (filter: RecipeFilter) =>
-  filter.category !== ALL || filter.creator !== ALL || filter.query.trim() !== '';
+  filter.category.length > 0 || filter.creator.length > 0 || filter.query.trim() !== '';
 
-/** Recipes matching all three filters. The search looks at name, description, author, creator and tags. */
+/** Recipes matching all three filters (within the category and person filters, any selected entry matches). The search looks at name, description, author, creator and tags. */
 export function filterRecipes(recipes: Recipe[], filter: RecipeFilter, favorites: string[]): Recipe[] {
   const q = filter.query.toLowerCase().trim();
-  const category = filter.category.toLowerCase();
+  const categories = filter.category.map((c) => c.toLowerCase());
+  const wantsFavorites = filter.category.includes(FAVORITES);
 
   return recipes.filter((r) => {
-    if (filter.creator !== ALL && (r.addedBy ?? NO_CREATOR) !== filter.creator) return false;
+    if (filter.creator.length > 0 && !filter.creator.includes(r.addedBy ?? NO_CREATOR)) return false;
 
-    if (filter.category === FAVORITES) {
-      if (!favorites.includes(r.id)) return false;
-    } else if (filter.category !== ALL) {
-      if (!tagsOf(r).some((t) => t.toLowerCase() === category)) return false;
+    if (filter.category.length > 0) {
+      const matches =
+        (wantsFavorites && favorites.includes(r.id)) ||
+        tagsOf(r).some((t) => categories.includes(t.toLowerCase()));
+      if (!matches) return false;
     }
 
     if (!q) return true;

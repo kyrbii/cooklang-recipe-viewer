@@ -186,13 +186,39 @@ def test_no_image():
     assert ai_import.find_page_image("<html></html>", "https://example.com/") is None
 
 
-def test_with_image_replaces_existing_line():
-    result = ai_import.with_image(">> title: A\n>> image: old.jpg\n\nStep.", "https://x.test/ä.jpg")
-    assert result == ">> image: https://x.test/ä.jpg\n>> title: A\n\nStep."
+def test_with_image_replaces_existing_front_matter_entry():
+    text = "---\ntitle: A\nimage: old.jpg\n---\n\nStep."
+    assert ai_import.with_image(text, "https://x.test/ä.jpg") == (
+        '---\nimage: "https://x.test/ä.jpg"\ntitle: A\n---\n\nStep.'
+    )
 
 
-def test_with_image_prepends_metadata_line():
-    assert ai_import.with_image("Step.", "https://x.test/a.jpg") == ">> image: https://x.test/a.jpg\nStep."
+def test_with_image_adds_front_matter_when_there_is_none():
+    assert ai_import.with_image("Step.", "https://x.test/a.jpg") == '---\nimage: "https://x.test/a.jpg"\n---\nStep.'
+
+
+def test_with_image_converts_legacy_metadata():
+    result = ai_import.with_image(">> title: A\n>> image: old.jpg\n\nStep.", "https://x.test/a.jpg")
+    assert result == '---\nimage: "https://x.test/a.jpg"\ntitle: A\n---\n\nStep.'
+
+
+def test_to_front_matter_converts_legacy_lines():
+    text = ">> title: Torte: lecker\n>> servings: 4\n>> source: https://x.test/r\n\nMix @Mehl{200%g}."
+    assert ai_import.to_front_matter(text) == (
+        '---\ntitle: "Torte: lecker"\nservings: 4\nsource: https://x.test/r\n---\n\nMix @Mehl{200%g}.'
+    )
+
+
+def test_to_front_matter_leaves_modern_text_alone():
+    text = "---\ntitle: A\n---\n\n> Tipp\n\nStep."
+    assert ai_import.to_front_matter(text) == text
+    assert ai_import.to_front_matter("> Notiz\n\nStep.") == "> Notiz\n\nStep."
+
+
+def test_prompt_asks_for_front_matter_and_no_ingredient_list():
+    assert "\n---\ntitle:" in ai_import.SYSTEM
+    assert ">> title" not in ai_import.SYSTEM
+    assert "NIE eine Zutatenliste" in ai_import.SYSTEM
 
 
 def test_with_image_none_leaves_text_unchanged():
@@ -276,7 +302,7 @@ def test_import_url_adds_page_image(client, auth_headers, gemini_calls, monkeypa
     monkeypatch.setattr(ai_import, "_open", lambda request, timeout: FakeResponse(PAGE.encode()))
     res = client.post("/import", json={"url": "https://example.com/rezept/1"}, headers=auth_headers)
     assert res.status_code == 200
-    assert ">> image: https://example.com/img/kuchen.jpg" in res.json()["cooklang"]
+    assert 'image: "https://example.com/img/kuchen.jpg"' in res.json()["cooklang"]
     assert "Seitentext:" in gemini_calls[0][0]["text"]
 
 

@@ -24,21 +24,29 @@ GEMINI_TIMEOUT = 90
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-SYSTEM = """Du bist ein Assistent, der Rezepte in die Cooklang-Syntax umwandelt (offizielle Spezifikation, cooklang.org).
+SYSTEM = """Du bist ein Assistent, der Rezepte in die Cooklang-Syntax umwandelt (aktuelle offizielle Spezifikation, cooklang.org/docs/spec).
 Antworte ausschließlich mit gültigem Cooklang-Code: ohne Erklärungen, ohne Markdown und ohne Code-Zäune.
 Schreibe alle Texte, Zutaten und Kochschritte auf Deutsch.
 
-Metadaten stehen am Anfang, jede Angabe in einer eigenen Zeile mit >>:
->> title: Marmorkuchen
->> servings: 4
->> source: https://example.de/rezept   (nur, wenn die Quelle bekannt ist)
+Metadaten stehen als YAML-Frontmatter ganz am Anfang, zwischen zwei Zeilen mit ---. Die alte Schreibweise mit >> ist veraltet und darf nie vorkommen:
+---
+title: Marmorkuchen
+servings: 4
+time: 1h 15m
+tags: [Backen, Kuchen]
+description: Saftiger Rührkuchen mit Schokoglasur
+source: https://example.de/rezept
+---
+title und servings immer, alles andere nur, wenn es im Rezept steht oder sicher bekannt ist (source nur mit bekannter Quelle). servings ist eine Zahl. tags ist eine Liste kurzer Stichworte (z. B. Hauptgericht, Backen, Suppe, Vegetarisch). Werte mit Doppelpunkt oder # in Anführungszeichen setzen: description: "Tipp: heiß servieren".
 
-Zutaten: @Name{Menge%Einheit}, z. B. @Mehl{250%g}. Mehrwortige Namen bleiben so: @rote Linsen{200%g}.
+Zutaten stehen im Text der Kochschritte, genau an der Stelle, an der sie verwendet werden: @Name{Menge%Einheit}, z. B. @Mehl{250%g}. Mehrwortige Namen bleiben so: @rote Linsen{200%g}.
 Ohne Menge: @Salz{}. Ohne Einheit: @Eier{3}.
+Schreibe NIE eine Zutatenliste, weder am Anfang noch am Ende und auch nicht pro Abschnitt, und keine Zeilen wie "Zutaten:" oder "- 200 g Mehl". Hat die Vorlage eine Zutatenliste, übernimm jede Menge in den Schritt, in dem die Zutat gebraucht wird, und formuliere den Satz bei Bedarf so um, dass die Zutat dort vorkommt. Jede Zutat der Liste muss mit ihrer Menge genau einmal in einem Schritt auftauchen.
+Wird eine Zutat in mehreren Schritten verwendet, schreibe in jedem Schritt die dort benötigte Teilmenge (z. B. 2 EL Öl: erst @Öl{1%EL} für die Pfanne, später @Öl{1%EL} für die Soße). Nennt die Vorlage keine Aufteilung, steht die ganze Menge beim ersten Vorkommen und jedes weitere Vorkommen ohne Menge: @Öl{}.
 Optionale Zutaten (z. B. "nach Geschmack", "optional", "zum Servieren") bekommen ein ? direkt nach dem @: @?Zimt{1%Prise}.
 Brüche immer als Bruch schreiben, nie als Dezimalzahl: 1/2 statt 0.5, außerdem 1/4 und 3/4. Gemischte Mengen mit Leerzeichen: 1 1/2.
 Kochgeschirr: #Topf{}, mit Größe wenn angegeben: #Backform{24%cm}.
-Timer: ~{15%min}.
+Timer: ~{15%min}, mit Namen: ~Backzeit{45%min}.
 Abschnitte, z. B. "Für den Teig" oder "Für die Füllung", bekommen eine Überschrift: == Teig ==
 Tipps, Hinweise und Varianten schreibst du als Notizzeile mit >, z. B.: > Tipp: Mit Zitronenschale noch aromatischer.
 Jeder Kochschritt ist ein eigener Absatz, getrennt durch eine Leerzeile.
@@ -224,12 +232,51 @@ def find_page_image(html: str, page_url: str) -> str | None:
     return None
 
 
+_LEGACY_LINE = re.compile(r"^>>\s*([^:]+?)\s*:\s*(.*?)\s*$")
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|\Z)")
+
+
+def _yaml_value(value: str) -> str:
+    """Plain YAML scalar, or a double-quoted one when plain would be misread."""
+    if value and not re.search(r"(^[\s\-?:,\[\]{}#&*!|>'\"%@`])|(: )|( #)|(\s$)", value):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def to_front_matter(cooklang: str) -> str:
+    """Moves leading legacy `>> key: value` lines into YAML front matter (the `>>` syntax is deprecated).
+
+    Text that already has front matter, or no leading `>>` lines, is returned unchanged.
+    """
+    if _FRONT_MATTER.match(cooklang):
+        return cooklang
+    lines = cooklang.split("\n")
+    entries: list[tuple[str, str]] = []
+    body_start = 0
+    for index, line in enumerate(lines):
+        match = _LEGACY_LINE.match(line)
+        if match:
+            entries.append((match.group(1), match.group(2)))
+            body_start = index + 1
+        elif line.strip():
+            break
+    if not entries:
+        return cooklang
+    block = ["---", *(f"{key}: {_yaml_value(value)}" for key, value in entries), "---"]
+    return "\n".join(block + lines[body_start:])
+
+
 def with_image(cooklang: str, image_url: str | None) -> str:
-    """Sets the `>> image:` metadata line, replacing an existing one."""
+    """Sets the `image:` front matter entry, replacing an existing one."""
     if not image_url:
         return cooklang
-    lines = [l for l in cooklang.split("\n") if not re.match(r"^>>\s*image\s*:", l, re.IGNORECASE)]
-    return "\n".join([f">> image: {image_url}"] + lines)
+    entry = f"image: {json.dumps(image_url, ensure_ascii=False)}"
+    cooklang = to_front_matter(cooklang)
+    match = _FRONT_MATTER.match(cooklang)
+    if not match:
+        return f"---\n{entry}\n---\n{cooklang}"
+    kept = [l for l in match.group(1).split("\n") if not re.match(r"^image\s*:", l, re.IGNORECASE)]
+    return "\n".join(["---", entry, *kept, "---"]) + "\n" + cooklang[match.end():]
 
 
 # ---- Gemini ----
@@ -266,7 +313,7 @@ def gemini(parts: list[dict], config: GeminiConfig) -> str:
 
     if not cooklang or cooklang == "KEIN_REZEPT":
         raise ImportFailed(422, "In diesem Inhalt wurde kein Rezept gefunden.")
-    return cooklang
+    return to_front_matter(cooklang)
 
 
 # ---- Entry point ----

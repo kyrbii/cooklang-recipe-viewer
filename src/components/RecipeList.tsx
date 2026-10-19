@@ -13,6 +13,7 @@ import {
   ArrowUp,
   UserRound,
   ChevronDown,
+  Check,
   Star
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
@@ -20,8 +21,8 @@ import { cookApi } from '../services/cookApi';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import { useLoginUser } from '../hooks/useLoginUser';
 import {
-  ALL,
   DEFAULT_FILTER,
+  FAVORITES,
   categoryOptions,
   creatorOptions,
   filterRecipes,
@@ -57,9 +58,15 @@ export const RecipeList: React.FC<RecipeListProps> = ({
 }) => {
   const loginUser = useLoginUser();
   const searchQuery = filter.query;
-  const selectedCategory = filter.category;
+  // One chosen category becomes the page title
+  const title = filter.category.length === 1 ? filter.category[0] : 'stir';
   const setSearchQuery = (query: string) => onFilterChange({ ...filter, query });
-  const [desktopView, setDesktopView] = useState<'grid' | 'list'>('grid');
+  const [desktopView, setDesktopViewState] = useState<'grid' | 'list'>(() => cookApi.getListView());
+  // Remembered, so the list keeps its layout when coming back from a recipe
+  const setDesktopView = (view: 'grid' | 'list') => {
+    setDesktopViewState(view);
+    cookApi.setListView(view);
+  };
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
@@ -101,6 +108,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   const filteredRecipes = useMemo(() => filterRecipes(recipes, filter, favorites), [recipes, filter, favorites]);
 
   const filterActive = isFilterActive(filter);
+  const statusLabel = status === 'connected' ? 'Online' : status === 'checking' ? 'Verbinde…' : 'Offline';
 
   return (
     <div className="flex-1 flex flex-col max-w-xl md:max-w-4xl lg:max-w-6xl xl:max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-safe pb-safe font-mela-sans">
@@ -108,27 +116,25 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       <div className="flex items-center justify-between pt-2 pb-3">
         <div>
           <h1 className="font-mela-serif text-3xl sm:text-4xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-            {selectedCategory === 'Alle' ? 'stir' : selectedCategory}
+            {title}
           </h1>
           <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 flex items-center gap-1.5">
             <span>
               {recipes.length} {recipes.length === 1 ? 'Rezept' : 'Rezepte'}
             </span>
             <span className="text-stone-300 dark:text-stone-700">•</span>
-            <span className="inline-flex items-center gap-1">
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  status === 'connected'
-                    ? 'bg-emerald-500'
-                    : status === 'checking'
-                    ? 'bg-amber-500 animate-pulse'
-                    : 'bg-stone-400 dark:bg-stone-600'
-                }`}
-              />
-              <span className="text-[11px] text-stone-400 dark:text-stone-500">
-                {status === 'connected' ? 'Online' : status === 'checking' ? 'Verbinde...' : 'Offline'}
-              </span>
-            </span>
+            <span
+              role="img"
+              aria-label={statusLabel}
+              title={statusLabel}
+              className={`w-1.5 h-1.5 rounded-full ${
+                status === 'connected'
+                  ? 'bg-emerald-500'
+                  : status === 'checking'
+                  ? 'bg-amber-500 animate-pulse'
+                  : 'bg-stone-400 dark:bg-stone-600'
+              }`}
+            />
             <span className="text-stone-300 dark:text-stone-700">•</span>
             {loginUser ? (
               <span
@@ -190,16 +196,6 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             <span className="hidden sm:inline">Neues Rezept</span>
           </button>
 
-          {/* Direct Sync Button */}
-          <button
-            onClick={onSync}
-            disabled={isSyncing}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
-            title="Rezepte mit dem Server synchronisieren"
-          >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#DE5D4E]' : ''}`} />
-          </button>
-
           {/* Settings Button */}
           <button
             onClick={onOpenSettings}
@@ -238,31 +234,25 @@ export const RecipeList: React.FC<RecipeListProps> = ({
         </div>
       </div>
 
-      {/* Filter dropdowns: category and person */}
+      {/* Filter dropdowns: category and person, each with multiple choice */}
       {recipes.length > 0 && (
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3 mb-6 sm:mb-7">
-          <FilterSelect
+          <FilterMultiSelect
             label="Kategorie"
-            value={selectedCategory}
+            allLabel="Alle Kategorien"
+            selected={filter.category}
             onChange={(category) => onFilterChange({ ...filter, category })}
             options={categories.map((cat) => ({
               value: cat,
-              label:
-                cat === ALL
-                  ? 'Alle Kategorien'
-                  : cat === 'Favoriten'
-                  ? `Favoriten (${favorites.length})`
-                  : cat
+              label: cat === FAVORITES ? `Favoriten (${favorites.length})` : cat
             }))}
           />
-          <FilterSelect
+          <FilterMultiSelect
             label="Von"
-            value={filter.creator}
+            allLabel="Alle Personen"
+            selected={filter.creator}
             onChange={(creator) => onFilterChange({ ...filter, creator })}
-            options={[
-              { value: ALL, label: 'Alle Personen' },
-              ...creators.map((name) => ({ value: name, label: name || 'Ohne Angabe' }))
-            ]}
+            options={creators.map((name) => ({ value: name, label: name || 'Ohne Angabe' }))}
           />
           {filterActive && (
             <button
@@ -379,9 +369,9 @@ const RecipeCard: React.FC<{
       onClick={onClick}
       className="group flex flex-col cursor-pointer transition-all duration-300 rounded-2xl bg-white dark:bg-[#1A1816] border border-stone-200/80 dark:border-stone-800/80 hover:border-stone-300 dark:hover:border-stone-700 shadow-xs hover:shadow-xl hover:-translate-y-1.5 overflow-hidden"
     >
-      {/* Thumbnail */}
-      <div className="w-full aspect-[16/10] overflow-hidden bg-stone-200 dark:bg-stone-800 relative">
-        {recipe.image ? (
+      {/* Thumbnail: recipes without a photo get a compact card with the pill and heart in the text area */}
+      {recipe.image && (
+        <div className="w-full aspect-[16/10] overflow-hidden bg-stone-200 dark:bg-stone-800 relative">
           <AuthenticatedImage
             src={recipe.image}
             alt={recipe.name}
@@ -393,37 +383,50 @@ const RecipeCard: React.FC<{
               </div>
             }
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800/80 text-stone-400">
-            <Tag className="w-10 h-10 opacity-30" />
-          </div>
-        )}
 
-        {/* Category Pill on Image */}
-        {category && (
+          {/* Category Pill on Image */}
           <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[11px] font-semibold text-white uppercase tracking-wider shadow-xs">
             {category}
           </span>
-        )}
 
-        {/* Favorite Button */}
-        <button
-          type="button"
-          onClick={onToggleFavorite}
-          className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer backdrop-blur-md ${
-            isFavorite
-              ? 'bg-white/95 dark:bg-stone-900/95 text-[#DE5D4E] shadow-sm opacity-100 scale-100'
-              : 'bg-black/35 hover:bg-black/60 text-white/90 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 hover:scale-110'
-          }`}
-          title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
-        >
-          <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
-        </button>
-      </div>
+          {/* Favorite Button */}
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer backdrop-blur-md ${
+              isFavorite
+                ? 'bg-white/95 dark:bg-stone-900/95 text-[#DE5D4E] shadow-sm opacity-100 scale-100'
+                : 'bg-black/35 hover:bg-black/60 text-white/90 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 hover:scale-110'
+            }`}
+            title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+          >
+            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
+          </button>
+        </div>
+      )}
 
       {/* Content Body with generous margins & padding */}
       <div className="p-5 sm:p-5.5 flex-1 flex flex-col justify-between">
         <div>
+          {!recipe.image && (
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <span className="px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-[11px] font-semibold text-stone-600 dark:text-stone-400 uppercase tracking-wider truncate">
+                {category}
+              </span>
+              <button
+                type="button"
+                onClick={onToggleFavorite}
+                className={`-mr-1.5 w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  isFavorite
+                    ? 'bg-rose-50 dark:bg-rose-950/40 text-[#DE5D4E]'
+                    : 'text-stone-300 dark:text-stone-600 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                }`}
+                title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+              >
+                <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
+              </button>
+            </div>
+          )}
           <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-2 group-hover:text-[#DE5D4E] transition-colors mb-1">
             {recipe.name}
           </h2>
@@ -476,8 +479,8 @@ const RecipeRow: React.FC<{
       onClick={onClick}
       className="p-5 sm:p-6 flex items-center gap-5 sm:gap-6 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group"
     >
-      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
-        {recipe.image ? (
+      {recipe.image && (
+        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
           <AuthenticatedImage
             src={recipe.image}
             alt={recipe.name}
@@ -489,12 +492,8 @@ const RecipeRow: React.FC<{
               </div>
             }
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-stone-100 dark:bg-stone-800 text-stone-400">
-            <Tag className="w-6 h-6 opacity-40" />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="flex-1 min-w-0 pr-2 py-1">
         <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1 group-hover:text-[#DE5D4E] transition-colors">
@@ -547,29 +546,104 @@ const RecipeRow: React.FC<{
   );
 };
 
-/** Native select, styled like the search field. Works well on phones and keeps long lists manageable. */
-const FilterSelect: React.FC<{
+/** Dropdown with checkboxes, styled like the search field. Nothing selected means no filter. */
+const FilterMultiSelect: React.FC<{
   label: string;
-  value: string;
-  onChange: (value: string) => void;
+  allLabel: string;
+  selected: string[];
+  onChange: (selected: string[]) => void;
   options: Array<{ value: string; label: string }>;
-}> = ({ label, value, onChange, options }) => (
-  <label className="relative block min-w-0">
-    <span className="sr-only">{label}</span>
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full h-11 pl-3.5 pr-9 rounded-xl bg-stone-200/50 dark:bg-stone-800/60 text-stone-900 dark:text-stone-100 text-sm truncate appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/30 focus:bg-white dark:focus:bg-[#1A1816] transition-all"
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-  </label>
-);
+}> = ({ label, allLabel, selected, onChange, options }) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !rootRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+
+  const toggle = (value: string) =>
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+
+  const labelOf = (value: string) => options.find((o) => o.value === value)?.label ?? value;
+  const summary =
+    selected.length === 0 ? allLabel : selected.length === 1 ? labelOf(selected[0]) : `${selected.length} ausgewählt`;
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full h-11 pl-3.5 pr-9 rounded-xl text-left text-sm truncate cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/30 transition-all ${
+          selected.length > 0
+            ? 'bg-[#DE5D4E]/10 text-stone-900 dark:text-stone-100 font-medium'
+            : 'bg-stone-200/50 dark:bg-stone-800/60 text-stone-900 dark:text-stone-100'
+        }`}
+      >
+        {summary}
+      </button>
+      <ChevronDown
+        className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 transition-transform ${
+          open ? 'rotate-180' : ''
+        }`}
+      />
+      {open && (
+        <div
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={label}
+          className="absolute z-30 left-0 right-0 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-white dark:bg-[#1A1816] border border-stone-200 dark:border-stone-700 shadow-xl py-1 animate-fadeIn"
+        >
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            disabled={selected.length === 0}
+            className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DE5D4E] disabled:text-stone-400 dark:disabled:text-stone-500 disabled:cursor-default cursor-pointer"
+          >
+            {allLabel}
+          </button>
+          {options.map((option) => {
+            const checked = selected.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={checked}
+                onClick={() => toggle(option.value)}
+                className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-left text-sm text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+              >
+                <span
+                  className={`w-4.5 h-4.5 shrink-0 rounded-md border flex items-center justify-center ${
+                    checked
+                      ? 'bg-[#DE5D4E] border-[#DE5D4E] text-white'
+                      : 'border-stone-300 dark:border-stone-600'
+                  }`}
+                >
+                  {checked && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
+                </span>
+                <span className="truncate">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** "von Name" and, if the recipe has one, the original author from the recipe text */
 const CreatorLine: React.FC<{ recipe: Recipe; className: string }> = ({ recipe, className }) => {

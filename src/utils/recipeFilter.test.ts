@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Recipe } from '../types/cook';
 import {
-  ALL,
   DEFAULT_FILTER,
   NO_CREATOR,
   categoryOptions,
@@ -39,8 +38,8 @@ describe('tagsOf', () => {
 
 describe('dropdown options', () => {
   it('lists all, favorites only when there are some, then tags sorted', () => {
-    expect(categoryOptions(recipes, 0)).toEqual([ALL, 'Backen', 'Suppe', 'Süß', 'Vegan']);
-    expect(categoryOptions(recipes, 2)[1]).toBe('Favoriten');
+    expect(categoryOptions(recipes, 0)).toEqual(['Backen', 'Suppe', 'Süß', 'Vegan']);
+    expect(categoryOptions(recipes, 2)[0]).toBe('Favoriten');
   });
 
   it('lists creators sorted, with an entry for recipes without one', () => {
@@ -57,20 +56,27 @@ describe('filterRecipes', () => {
   });
 
   it('filters by person, including recipes without a creator', () => {
-    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, creator: 'anna' }, []))).toEqual(['Linsen']);
-    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, creator: NO_CREATOR }, []))).toEqual(['Brot']);
+    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, creator: ['anna'] }, []))).toEqual(['Linsen']);
+    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, creator: [NO_CREATOR] }, []))).toEqual(['Brot']);
+  });
+
+  it('matches any of several selected people', () => {
+    const filter = { ...DEFAULT_FILTER, creator: ['anna', 'korbinian'] };
+    expect(ids(filterRecipes(recipes, filter, []))).toEqual(['Kuchen', 'Linsen']);
+    expect(ids(filterRecipes(recipes, { ...filter, creator: ['anna', NO_CREATOR] }, []))).toEqual(['Linsen', 'Brot']);
   });
 
   it('filters by category, case-insensitively', () => {
-    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, category: 'backen' }, []))).toEqual(['Kuchen', 'Brot']);
+    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, category: ['backen'] }, []))).toEqual(['Kuchen', 'Brot']);
   });
 
   it('filters by favorites', () => {
-    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, category: 'Favoriten' }, ['Brot']))).toEqual(['Brot']);
+    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, category: ['Favoriten'] }, ['Brot']))).toEqual(['Brot']);
+    expect(ids(filterRecipes(recipes, { ...DEFAULT_FILTER, category: ['Favoriten', 'Suppe'] }, ['Brot']))).toEqual(['Linsen', 'Brot']);
   });
 
   it('combines the filters', () => {
-    const filter = { query: '', category: 'Backen', creator: 'korbinian' };
+    const filter = { query: '', category: ['Backen'], creator: ['korbinian'] };
     expect(ids(filterRecipes(recipes, filter, []))).toEqual(['Kuchen']);
   });
 
@@ -89,7 +95,7 @@ describe('helpers', () => {
   it('detects an active filter', () => {
     expect(isFilterActive(DEFAULT_FILTER)).toBe(false);
     expect(isFilterActive({ ...DEFAULT_FILTER, query: ' ' })).toBe(false);
-    expect(isFilterActive({ ...DEFAULT_FILTER, creator: 'anna' })).toBe(true);
+    expect(isFilterActive({ ...DEFAULT_FILTER, creator: ['anna'] })).toBe(true);
   });
 
   it('formats ratings with a German decimal comma', () => {

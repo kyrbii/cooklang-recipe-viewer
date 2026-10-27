@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ChevronLeft,
-  MoreHorizontal,
   Clock,
   Users,
   Check,
@@ -36,6 +35,7 @@ import { cookApi } from '../services/cookApi';
 import { useLoginUser } from '../hooks/useLoginUser';
 import { copyText, ingredientListText } from '../utils/ingredientText';
 import { ConfirmDialog } from './ConfirmDialog';
+import { OverflowMenu } from './OverflowMenu';
 import { useTimers } from '../context/useTimers';
 import { recipeShareUrl } from '../utils/recipeLink';
 import { RecipeRefLink } from './RecipeRefLink';
@@ -325,44 +325,6 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
           </button>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {loginUser && (
-              <button
-                onClick={() => {
-                  setDeleteError(null);
-                  setIsDeleteOpen(true);
-                }}
-                className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/60 active:scale-95 transition-all cursor-pointer"
-                title="Rezept vom Server löschen"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Löschen</span>
-              </button>
-            )}
-
-            {/* Edit Recipe Button */}
-            {loginUser && (
-              <button
-                id="recipe-edit-button"
-                onClick={onEdit}
-                className="h-9 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-stone-200/70 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-300/60 active:scale-95 transition-all cursor-pointer shadow-2xs"
-                title="Rezeptdatei (.cook) bearbeiten"
-              >
-                <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
-                <span>Bearbeiten</span>
-              </button>
-            )}
-
-            {loginUser && onAddToCollection && (
-              <button
-                onClick={onAddToCollection}
-                className="w-9 h-9 flex items-center justify-center rounded-full text-stone-700 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 active:scale-95 cursor-pointer"
-                title="Zu Sammlung hinzufügen"
-                aria-label="Zu Sammlung hinzufügen"
-              >
-                <FolderPlus className="w-4 h-4" />
-              </button>
-            )}
-
             {/* Cook Mode (Screen Wake Lock) Button */}
             <button
               onClick={handleToggleCookMode}
@@ -399,13 +361,27 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
               />
             </button>
 
-            <button
-              onClick={onOpenSettings}
-              className="w-9 h-9 flex items-center justify-center rounded-full text-stone-700 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 active:scale-95 cursor-pointer"
-              title="Optionen & Server-Einstellungen"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
+            {loginUser && (
+              <OverflowMenu
+                items={[
+                  { label: 'Bearbeiten', icon: <Pencil className="w-4 h-4" />, onClick: onEdit },
+                  onAddToCollection && {
+                    label: 'Zu Sammlung hinzufügen',
+                    icon: <FolderPlus className="w-4 h-4" />,
+                    onClick: onAddToCollection
+                  },
+                  {
+                    label: 'Löschen',
+                    icon: <Trash2 className="w-4 h-4" />,
+                    danger: true,
+                    onClick: () => {
+                      setDeleteError(null);
+                      setIsDeleteOpen(true);
+                    }
+                  }
+                ]}
+              />
+            )}
           </div>
         </div>
       </header>

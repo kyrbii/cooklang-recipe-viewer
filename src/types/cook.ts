@@ -162,3 +162,14 @@ export type UpdateRecipeResult =
   | { status: 'saved'; recipe: Recipe; content: string }
   | { status: 'conflict'; serverContent: string }
   | { status: 'error'; message: string; isOffline?: boolean };
+
+/** A named group of recipes that belongs equally to all its members */
+export interface Collection {
+  id: number;
+  name: string;
+  /** Login name of the creator, null once that account is gone */
+  createdBy: string | null;
+  members: string[];
+  /** Recipe paths, in the order they were added */
+  paths: string[];
+}

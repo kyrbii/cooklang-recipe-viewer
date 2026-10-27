@@ -24,6 +24,21 @@ Tested in the browser: list, login, edit and save, conflict dialog, forced overw
 | DELETE | `/recipe-photo/{path}` | token | Remove the photo, the recipe stays |
 | DELETE | `/recipe/{path}` | token | Delete. Needs `If-Match` like a save: 412 with the server version if it changed, 428 without it. Empty folders are removed |
 | POST | `/import` | token | AI import: `{url}`, `{text}` or `{image, mimeType}` → `{cooklang}` |
+| GET | `/collections` | token | Collections the signed-in person is a member of: `{collections: [{id, name, created_by, members, paths}]}`, by name |
+| POST | `/collections` | token | `{name}` → `201`, the creator is the first member |
+| PATCH | `/collections/{id}` | member | Rename |
+| DELETE | `/collections/{id}` | member | Delete for all members, the recipes stay |
+| PUT, DELETE | `/collections/{id}/recipes/{path}` | member | Add (recipe must exist) or remove a recipe, both `204` and idempotent |
+| PUT | `/collections/{id}/members/{username}` | member | Invite an existing user, `404` if unknown |
+| DELETE | `/collections/{id}/members/{username}` | member | Remove a member, or leave with your own name |
+
+## Collections
+
+- A collection belongs to all its members equally: no owner, no roles. Any member can rename, fill, empty, delete it and invite or remove others. A person can be in many collections and a collection has many people (n:m).
+- Recipes stay public in `RECIPE_DIR`. A collection only stores recipe paths in SQLite (`collection_recipes`), like `recipe_meta`. No symlinks.
+- For non-members a collection does not exist (`404`), also for writes.
+- A collection without members is deleted by a trigger. This covers the last member leaving and deleted accounts (the foreign key removes their memberships). `created_by` becomes `NULL` when that account is deleted.
+- Deleting a recipe removes its path from every collection.
 
 Users are created only by `scripts/create_user.py`, removed by `scripts/delete_user.py` (admin) or `DELETE /account` (self-service). Recipe photos are supported: one photo per recipe, stored next to the recipe.
 

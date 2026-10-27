@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Clock, MoreHorizontal, Pencil, Plus, Search, Star, Trash2, UserPlus, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronLeft, Clock, LayoutGrid, List as ListIcon, Pencil, Plus, Search, Star, Tag, Trash2, UserPlus, X } from 'lucide-react';
 import type { Collection, Recipe } from '../../types/cook';
 import { cookApi } from '../../services/cookApi';
 import { DEFAULT_FILTER, filterRecipes, formatRating, tagsOf } from '../../utils/recipeFilter';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { AuthenticatedImage } from '../AuthenticatedImage';
+import { OverflowMenu } from '../OverflowMenu';
 import { AvatarStack } from './Avatars';
 import { NameDialog } from './NameDialog';
 import { AddRecipesSheet } from './AddRecipesSheet';
@@ -28,7 +30,11 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
   onChanged
 }) => {
   const [query, setQuery] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [view, setViewState] = useState<'grid' | 'list'>(() => cookApi.getCollectionView());
+  const setView = (v: 'grid' | 'list') => {
+    setViewState(v);
+    cookApi.setCollectionView(v);
+  };
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -36,16 +42,6 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
   const [sharing, setSharing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [menuOpen]);
 
   // Recipes that no longer exist on the server are skipped
   const members = useMemo(() => {
@@ -79,44 +75,26 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
           <ChevronLeft className="w-4 h-4" />
           Sammlungen
         </button>
-        <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-label="Sammlung umbenennen oder löschen"
-            aria-expanded={menuOpen}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-600 dark:text-stone-300 cursor-pointer active:scale-95 transition-transform"
-          >
-            <MoreHorizontal className="w-[18px] h-[18px]" />
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-11 z-20 w-52 p-1.5 rounded-2xl bg-white dark:bg-[#1A1816] border border-stone-200 dark:border-stone-800 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setRenaming(true);
-                }}
-                className="w-full h-10 px-3 flex items-center gap-2.5 rounded-xl text-sm font-medium text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
-              >
-                <Pencil className="w-4 h-4 text-stone-500" />
-                Umbenennen
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setDeleteError(null);
-                  setDeleting(true);
-                }}
-                className="w-full h-10 px-3 flex items-center gap-2.5 rounded-xl text-sm font-medium text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                Für alle löschen
-              </button>
-            </div>
-          )}
-        </div>
+        <OverflowMenu
+          label="Mehr"
+          items={[
+            {
+              label: view === 'grid' ? 'Listenansicht' : 'Kachelansicht',
+              icon: view === 'grid' ? <ListIcon className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />,
+              onClick: () => setView(view === 'grid' ? 'list' : 'grid')
+            },
+            { label: 'Umbenennen', icon: <Pencil className="w-4 h-4" />, onClick: () => setRenaming(true) },
+            {
+              label: 'Für alle löschen',
+              icon: <Trash2 className="w-4 h-4" />,
+              danger: true,
+              onClick: () => {
+                setDeleteError(null);
+                setDeleting(true);
+              }
+            }
+          ]}
+        />
       </div>
 
       <h1 className="font-mela-serif text-3xl font-bold tracking-tight leading-[1.1] mt-3.5 text-stone-900 dark:text-stone-50">
@@ -167,8 +145,40 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
         </p>
       )}
 
-      <div className="flex flex-col gap-2.5 mt-3.5">
-        {shown.map((recipe) => {
+      <div className={view === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-3.5' : 'flex flex-col gap-2.5 mt-3.5'}>
+        {view === 'grid' &&
+          shown.map((recipe) => (
+            <div key={recipe.path} className="group relative aspect-square rounded-2xl overflow-hidden bg-stone-200 dark:bg-stone-800 border border-stone-200/80 dark:border-stone-800">
+              <button type="button" onClick={() => onOpenRecipe(recipe)} className="absolute inset-0 w-full text-left cursor-pointer">
+                {recipe.image ? (
+                  <AuthenticatedImage
+                    src={recipe.image}
+                    alt=""
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                    loading="lazy"
+                    fallback={<TileFallback />}
+                  />
+                ) : (
+                  <TileFallback />
+                )}
+                <span className="absolute inset-x-0 bottom-0 px-3 pt-8 pb-2.5 bg-gradient-to-t from-black/70 to-transparent">
+                  <span className="block font-mela-serif text-[15px] font-bold leading-tight text-white line-clamp-2">
+                    {recipe.name}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => remove(recipe)}
+                aria-label={`${recipe.name} aus Sammlung entfernen`}
+                title="Aus Sammlung entfernen"
+                className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-black/45 hover:bg-black/65 text-white backdrop-blur-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        {view === 'list' && shown.map((recipe) => {
           const time = recipe.metadata.total_time || recipe.metadata.cook_time || recipe.metadata.time || recipe.metadata.prep_time;
           const category = tagsOf(recipe)[0];
           return (
@@ -213,7 +223,7 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
           );
         })}
         {shown.length === 0 && (
-          <p className="py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+          <p className="col-span-full py-10 text-center text-sm text-stone-500 dark:text-stone-400">
             {members.length === 0 ? 'Diese Sammlung ist noch leer.' : 'Keine passenden Rezepte in dieser Sammlung.'}
           </p>
         )}
@@ -284,3 +294,10 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
     </div>
   );
 };
+
+/** Tile without a photo */
+const TileFallback: React.FC = () => (
+  <span className="w-full h-full flex items-center justify-center text-stone-400 dark:text-stone-600">
+    <Tag className="w-8 h-8 opacity-40" />
+  </span>
+);

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useBackLayer } from '../hooks/useBackLayer';
 import {
   ChevronLeft,
   Clock,
@@ -96,6 +97,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
 
   // Screen Wake Lock (Cook Mode)
   const [isCookMode, setIsCookMode] = useState(false);
+  useBackLayer(isCookMode, () => setIsCookMode(false));
   const [wakeLockError, setWakeLockError] = useState<string | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 

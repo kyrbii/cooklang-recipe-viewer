@@ -14,6 +14,7 @@ import { shareDraftFromParams, type ShareDraft } from './utils/shareImport';
 import { DEFAULT_FILTER, type RecipeFilter } from './utils/recipeFilter';
 import { useLoginUser } from './hooks/useLoginUser';
 import { useCollections } from './hooks/useCollections';
+import { useBackLayer } from './hooks/useBackLayer';
 import { type HomeView } from './components/collections/HomeTabs';
 import { CollectionsPage } from './components/collections/CollectionsPage';
 import { CollectionDetail } from './components/collections/CollectionDetail';
@@ -64,6 +65,19 @@ const MelaApp: React.FC = () => {
   const showCollections = loginUser !== '' && homeView === 'collections';
   const openCollection = collections.find((c) => c.id === openCollectionId) ?? null;
 
+  // Zurück-Taste und Wischgeste schließen erst Dialoge und Sheets, dann Unterseiten
+  const [startHomeView] = useState(homeView);
+  useBackLayer(showCollections && homeView !== startHomeView, () => setHomeView(startHomeView));
+  useBackLayer(showCollections && openCollection !== null, () => setOpenCollectionId(null));
+  useBackLayer(isSettingsOpen, () => setIsSettingsOpen(false));
+  useBackLayer(editingRecipe !== null, () => setEditingRecipe(null));
+  useBackLayer(isAddModalOpen, () => {
+    setIsAddModalOpen(false);
+    setShareDraft(null);
+  });
+  useBackLayer(isNewCollectionOpen, () => setIsNewCollectionOpen(false));
+  useBackLayer(collectionSheetFor !== null, () => setCollectionSheetFor(null));
+
   // Rezept öffnen und schließen. Die URL folgt der Auswahl, damit Links und der Zurück-Button funktionieren.
   const openRecipe = useCallback((recipe: Recipe) => {
     setSelectedRecipe(recipe);
@@ -73,14 +87,14 @@ const MelaApp: React.FC = () => {
       listScrollRef.current = window.scrollY;
     }
     if (window.location.hash !== target) {
-      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${target}`);
+      window.history.pushState(window.history.state, '', `${window.location.pathname}${window.location.search}${target}`);
     }
   }, []);
 
   const closeRecipe = useCallback(() => {
     setSelectedRecipe(null);
     if (recipeKeyFromHash(window.location.hash) !== null) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
     }
   }, []);
 

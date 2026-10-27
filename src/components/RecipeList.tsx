@@ -2,7 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search,
   X,
-  MoreHorizontal,
+  Settings,
+  SlidersHorizontal,
   Clock,
   Tag,
   RefreshCw,
@@ -12,7 +13,6 @@ import {
   Heart,
   ArrowUp,
   UserRound,
-  ChevronDown,
   Check,
   Star,
   CheckSquare
@@ -20,6 +20,9 @@ import {
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import { OverflowMenu } from './OverflowMenu';
+import { Sheet } from './collections/Sheet';
+import { AddRecipeFab, HomeViewToggle, type HomeView } from './collections/HomeTabs';
 import { useLoginUser } from '../hooks/useLoginUser';
 import {
   DEFAULT_FILTER,
@@ -28,7 +31,6 @@ import {
   creatorOptions,
   filterRecipes,
   formatRating,
-  isFilterActive,
   type RecipeFilter
 } from '../utils/recipeFilter';
 
@@ -43,8 +45,8 @@ interface RecipeListProps {
   onAddRecipe: () => void;
   filter: RecipeFilter;
   onFilterChange: (filter: RecipeFilter) => void;
-  /** "Alle Rezepte / Sammlungen" switch, only given when signed in */
-  tabs?: React.ReactNode;
+  /** Given when signed in: jumps to the collections page */
+  onViewChange?: (view: HomeView) => void;
   /** Given when signed in: enables the selection mode that adds several recipes to collections at once */
   onAddToCollection?: (recipes: Recipe[]) => void;
 }
@@ -60,7 +62,7 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   onAddRecipe,
   filter,
   onFilterChange,
-  tabs,
+  onViewChange,
   onAddToCollection
 }) => {
   const loginUser = useLoginUser();
@@ -130,7 +132,8 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   const creators = useMemo(() => creatorOptions(recipes), [recipes]);
   const filteredRecipes = useMemo(() => filterRecipes(recipes, filter, favorites), [recipes, filter, favorites]);
 
-  const filterActive = isFilterActive(filter);
+  const filterCount = filter.category.length + filter.creator.length;
+  const [filterOpen, setFilterOpen] = useState(false);
   const statusLabel = status === 'connected' ? 'Online' : status === 'checking' ? 'Verbinde…' : 'Offline';
 
   return (
@@ -183,81 +186,38 @@ export const RecipeList: React.FC<RecipeListProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Desktop/Mobile View Switcher (Grid vs List) */}
-          <div className="flex items-center bg-stone-200/60 dark:bg-stone-800 p-0.5 rounded-full mr-1">
-            <button
-              onClick={() => setDesktopView('grid')}
-              className={`p-1.5 rounded-full transition-all cursor-pointer ${
-                desktopView === 'grid'
-                  ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-white shadow-2xs'
-                  : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'
-              }`}
-              title="Kachelansicht"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setDesktopView('list')}
-              className={`p-1.5 rounded-full transition-all cursor-pointer ${
-                desktopView === 'list'
-                  ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-white shadow-2xs'
-                  : 'text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'
-              }`}
-              title="Listenansicht"
-            >
-              <ListIcon className="w-4 h-4" />
-            </button>
-          </div>
-
-          {onAddToCollection && recipes.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelection(selection ? null : new Set())}
-              aria-pressed={selection !== null}
-              className={`h-9 px-3 rounded-full flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all cursor-pointer ${
-                selection
-                  ? 'bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900'
-                  : 'bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
-              }`}
-              title="Rezepte auswählen"
-            >
-              <CheckSquare className="w-4 h-4" />
-              <span className="hidden sm:inline">Auswählen</span>
-            </button>
-          )}
-
-          {/* Add Recipe Button */}
-          <button
-            onClick={onAddRecipe}
-            className="h-9 px-3 rounded-full bg-[#DE5D4E] hover:bg-[#cf5142] text-white active:scale-95 transition-all shadow-xs flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-            title="Rezept hinzufügen / importieren"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Neues Rezept</span>
-          </button>
-
-          {/* Settings Button */}
-          <button
-            onClick={onOpenSettings}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-transform cursor-pointer"
-            title="Einstellungen & Server"
-          >
-            <MoreHorizontal className="w-5 h-5" />
-          </button>
+          {onViewChange && <HomeViewToggle value="recipes" onChange={onViewChange} />}
+          <OverflowMenu
+            items={[
+              onAddToCollection &&
+                recipes.length > 0 && {
+                  label: 'Rezepte auswählen',
+                  icon: <CheckSquare className="w-4 h-4" />,
+                  onClick: () => setSelection(new Set())
+                },
+              {
+                label: desktopView === 'grid' ? 'Listenansicht' : 'Kachelansicht',
+                icon: desktopView === 'grid' ? <ListIcon className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />,
+                onClick: () => setDesktopView(desktopView === 'grid' ? 'list' : 'grid')
+              },
+              { label: 'Einstellungen', icon: <Settings className="w-4 h-4" />, onClick: onOpenSettings }
+            ]}
+          />
         </div>
       </div>
 
-      {tabs ?? <div className="h-1" />}
+      <div className="h-1" />
 
       {/* Search Bar with Desktop "/" hint */}
-      <div ref={searchBarRef} className="relative mb-4 sm:mb-5">
+      <div className="flex items-center gap-2 mb-4 sm:mb-5">
+      <div ref={searchBarRef} className="relative flex-1 min-w-0">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
         <input
           ref={searchInputRef}
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Rezepte, Zutaten, Tags durchsuchen…"
+          placeholder="Rezepte durchsuchen…"
           className="w-full h-11 pl-10 pr-16 rounded-xl bg-stone-200/50 dark:bg-stone-800/60 text-stone-900 dark:text-stone-100 placeholder-stone-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/30 focus:bg-white dark:focus:bg-[#1A1816] transition-all"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
@@ -275,38 +235,27 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           )}
         </div>
       </div>
-
-      {/* Filter dropdowns: category and person, each with multiple choice */}
       {recipes.length > 0 && (
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 mb-6 sm:mb-7">
-          <FilterMultiSelect
-            label="Kategorie"
-            allLabel="Alle Kategorien"
-            selected={filter.category}
-            onChange={(category) => onFilterChange({ ...filter, category })}
-            options={categories.map((cat) => ({
-              value: cat,
-              label: cat === FAVORITES ? `Favoriten (${favorites.length})` : cat
-            }))}
-          />
-          <FilterMultiSelect
-            label="Von"
-            allLabel="Alle Personen"
-            selected={filter.creator}
-            onChange={(creator) => onFilterChange({ ...filter, creator })}
-            options={creators.map((name) => ({ value: name, label: name || 'Ohne Angabe' }))}
-          />
-          {filterActive && (
-            <button
-              type="button"
-              onClick={() => onFilterChange({ ...DEFAULT_FILTER, query: '' })}
-              className="col-span-2 justify-self-start text-xs font-medium text-[#DE5D4E] hover:underline cursor-pointer"
-            >
-              Filter zurücksetzen
-            </button>
+        <button
+          type="button"
+          onClick={() => setFilterOpen(true)}
+          aria-label="Filter"
+          title="Filter"
+          className={`relative w-11 h-11 shrink-0 rounded-xl flex items-center justify-center cursor-pointer active:scale-95 transition-all ${
+            filterCount > 0
+              ? 'bg-[#DE5D4E]/10 text-[#DE5D4E]'
+              : 'bg-stone-200/50 dark:bg-stone-800/60 text-stone-600 dark:text-stone-300'
+          }`}
+        >
+          <SlidersHorizontal className="w-[18px] h-[18px]" />
+          {filterCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#DE5D4E] text-white text-[10px] font-bold flex items-center justify-center">
+              {filterCount}
+            </span>
           )}
-        </div>
+        </button>
       )}
+      </div>
 
       {/* Content Area: Responsive Grid / List */}
       <div className="flex-1 pb-16">
@@ -402,13 +351,27 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           </button>
         </div>
       )}
+      {!selection && <AddRecipeFab onClick={onAddRecipe} />}
+      {filterOpen && (
+        <FilterSheet
+          filter={filter}
+          categories={categories.map((cat) => ({
+            value: cat,
+            label: cat === FAVORITES ? `Favoriten (${favorites.length})` : cat
+          }))}
+          creators={creators.map((name) => ({ value: name, label: name || 'Ohne Angabe' }))}
+          resultCount={filteredRecipes.length}
+          onChange={onFilterChange}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
       {searchBarHidden && !selection && (
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Nach oben"
           title="Nach oben"
-          className="fixed bottom-6 right-5 z-30 w-11 h-11 rounded-full bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700 shadow-lg flex items-center justify-center active:scale-95 transition-all cursor-pointer animate-fadeIn"
+          className="fixed bottom-24 right-5 z-30 w-11 h-11 rounded-full bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700 shadow-lg flex items-center justify-center active:scale-95 transition-all cursor-pointer animate-fadeIn"
         >
           <ArrowUp className="w-5 h-5" />
         </button>
@@ -632,102 +595,73 @@ const SelectBox: React.FC<{ checked: boolean; className?: string }> = ({ checked
   </span>
 );
 
-/** Dropdown with checkboxes, styled like the search field. Nothing selected means no filter. */
-const FilterMultiSelect: React.FC<{
-  label: string;
-  allLabel: string;
-  selected: string[];
-  onChange: (selected: string[]) => void;
-  options: Array<{ value: string; label: string }>;
-}> = ({ label, allLabel, selected, onChange, options }) => {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', close);
-    };
-  }, [open]);
-
-  const toggle = (value: string) =>
-    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
-
-  const labelOf = (value: string) => options.find((o) => o.value === value)?.label ?? value;
-  const summary =
-    selected.length === 0 ? allLabel : selected.length === 1 ? labelOf(selected[0]) : `${selected.length} ausgewählt`;
-
+/** Categories and persons as tappable chips; each group allows several choices, none chosen means no filter */
+const FilterSheet: React.FC<{
+  filter: RecipeFilter;
+  categories: Array<{ value: string; label: string }>;
+  creators: Array<{ value: string; label: string }>;
+  resultCount: number;
+  onChange: (filter: RecipeFilter) => void;
+  onClose: () => void;
+}> = ({ filter, categories, creators, resultCount, onChange, onClose }) => {
+  const toggle = (key: 'category' | 'creator', value: string) => {
+    const list = filter[key];
+    onChange({ ...filter, [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
+  };
+  const groups = [
+    ['category', 'Kategorie', categories],
+    ['creator', 'Von', creators]
+  ] as const;
   return (
-    <div ref={rootRef} className="relative min-w-0">
-      <button
-        type="button"
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className={`w-full h-11 pl-3.5 pr-9 rounded-xl text-left text-sm truncate cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#DE5D4E]/30 transition-all ${
-          selected.length > 0
-            ? 'bg-[#DE5D4E]/10 text-stone-900 dark:text-stone-100 font-medium'
-            : 'bg-stone-200/50 dark:bg-stone-800/60 text-stone-900 dark:text-stone-100'
-        }`}
-      >
-        {summary}
-      </button>
-      <ChevronDown
-        className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 transition-transform ${
-          open ? 'rotate-180' : ''
-        }`}
-      />
-      {open && (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          aria-label={label}
-          className="absolute z-30 left-0 right-0 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-white dark:bg-[#1A1816] border border-stone-200 dark:border-stone-700 shadow-xl py-1 animate-fadeIn"
+    <Sheet title="Filter" onClose={onClose}>
+      <div className="px-5 flex flex-col gap-5">
+        {groups.map(([key, label, options]) => (
+          <section key={key} aria-label={label}>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">
+              {label}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {options.map((option) => {
+                const on = filter[key].includes(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggle(key, option.value)}
+                    className={`h-9 px-3.5 rounded-full text-sm cursor-pointer transition-colors flex items-center gap-1.5 ${
+                      on
+                        ? 'bg-[#DE5D4E] text-white font-semibold'
+                        : 'bg-stone-200/60 dark:bg-stone-800 text-stone-800 dark:text-stone-200'
+                    }`}
+                  >
+                    {on && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+      <div className="px-4 pt-5 flex gap-2">
+        <button
+          type="button"
+          disabled={filter.category.length + filter.creator.length === 0}
+          onClick={() => onChange({ ...DEFAULT_FILTER, query: filter.query })}
+          className="h-[46px] px-4 rounded-xl text-[15px] font-medium text-[#DE5D4E] disabled:text-stone-400 dark:disabled:text-stone-600 cursor-pointer disabled:cursor-default"
         >
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            disabled={selected.length === 0}
-            className="w-full px-3.5 py-2 text-left text-xs font-medium text-[#DE5D4E] disabled:text-stone-400 dark:disabled:text-stone-500 disabled:cursor-default cursor-pointer"
-          >
-            {allLabel}
-          </button>
-          {options.map((option) => {
-            const checked = selected.includes(option.value);
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={checked}
-                onClick={() => toggle(option.value)}
-                className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-left text-sm text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
-              >
-                <span
-                  className={`w-4.5 h-4.5 shrink-0 rounded-md border flex items-center justify-center ${
-                    checked
-                      ? 'bg-[#DE5D4E] border-[#DE5D4E] text-white'
-                      : 'border-stone-300 dark:border-stone-600'
-                  }`}
-                >
-                  {checked && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
-                </span>
-                <span className="truncate">{option.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+          Zurücksetzen
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 h-[46px] rounded-xl bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900 text-[15px] font-semibold cursor-pointer"
+        >
+          {resultCount} {resultCount === 1 ? 'Rezept' : 'Rezepte'} anzeigen
+        </button>
+      </div>
+    </Sheet>
   );
 };
 

@@ -1,36 +1,35 @@
 import React from 'react';
-import { Folder, List } from 'lucide-react';
+import { Folder, List, Plus } from 'lucide-react';
 
 export type HomeView = 'recipes' | 'collections';
 
-/** "Alle Rezepte / Sammlungen" switch under the page header */
-export const HomeTabs: React.FC<{ value: HomeView; onChange: (view: HomeView) => void }> = ({ value, onChange }) => (
-  <div
-    role="tablist"
-    aria-label="Ansicht"
-    className="grid grid-cols-2 gap-0.5 mt-4 mb-4 p-[3px] rounded-xl bg-stone-200/60 dark:bg-stone-800"
+/** One button that jumps to the other main page: from the recipes to the collections and back */
+export const HomeViewToggle: React.FC<{ value: HomeView; onChange: (view: HomeView) => void }> = ({ value, onChange }) => {
+  const toCollections = value === 'recipes';
+  const Icon = toCollections ? Folder : List;
+  const label = toCollections ? 'Sammlungen' : 'Alle Rezepte';
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(toCollections ? 'collections' : 'recipes')}
+      title={`Zu ${label} wechseln`}
+      className="h-9 px-3 rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white active:scale-95 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+    >
+      <Icon className="w-4 h-4" />
+      {label}
+    </button>
+  );
+};
+
+/** Round "+" in thumb reach, bottom right */
+export const AddRecipeFab: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title="Rezept hinzufügen / importieren"
+    aria-label="Neues Rezept"
+    className="fixed bottom-6 right-5 z-30 w-14 h-14 rounded-full bg-[#DE5D4E] hover:bg-[#cf5142] text-white shadow-lg flex items-center justify-center active:scale-95 transition-all cursor-pointer"
   >
-    {(
-      [
-        ['recipes', 'Alle Rezepte', List],
-        ['collections', 'Sammlungen', Folder]
-      ] as const
-    ).map(([view, label, Icon]) => (
-      <button
-        key={view}
-        type="button"
-        role="tab"
-        aria-selected={value === view}
-        onClick={() => onChange(view)}
-        className={`h-[38px] rounded-[9px] text-sm flex items-center justify-center gap-[7px] cursor-pointer transition-colors ${
-          value === view
-            ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-white font-semibold shadow-sm'
-            : 'text-stone-500 dark:text-stone-400 font-medium hover:text-stone-800 dark:hover:text-stone-200'
-        }`}
-      >
-        <Icon className="w-4 h-4" />
-        {label}
-      </button>
-    ))}
-  </div>
+    <Plus className="w-6 h-6" />
+  </button>
 );

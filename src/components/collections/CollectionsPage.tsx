@@ -1,8 +1,9 @@
 import React from 'react';
-import { MoreHorizontal, Plus, UserRound } from 'lucide-react';
+import { Settings, UserRound } from 'lucide-react';
 import type { Collection, ConnectionStatus, Recipe } from '../../types/cook';
 import { CollectionsHome } from './CollectionsHome';
-import { HomeTabs, type HomeView } from './HomeTabs';
+import { OverflowMenu } from '../OverflowMenu';
+import { AddRecipeFab, HomeViewToggle, type HomeView } from './HomeTabs';
 
 interface CollectionsPageProps {
   collections: Collection[];
@@ -57,26 +58,15 @@ export const CollectionsPage: React.FC<CollectionsPageProps> = ({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <button
-          onClick={onAddRecipe}
-          className="h-9 px-3 sm:px-3.5 rounded-full bg-[#DE5D4E] hover:bg-[#cf5142] text-white active:scale-95 transition-all shadow-xs flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-          title="Rezept hinzufügen / importieren"
-          aria-label="Neues Rezept"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">Neues Rezept</span>
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300 active:scale-95 transition-transform cursor-pointer"
-          title="Einstellungen & Server"
-          aria-label="Einstellungen"
-        >
-          <MoreHorizontal className="w-5 h-5" />
-        </button>
+        <HomeViewToggle value="collections" onChange={onViewChange} />
+        <OverflowMenu
+          label="Mehr"
+          items={[{ label: 'Einstellungen', icon: <Settings className="w-4 h-4" />, onClick: onOpenSettings }]}
+        />
       </div>
     </div>
-    <HomeTabs value="collections" onChange={onViewChange} />
+    <div className="h-4" />
     <CollectionsHome collections={collections} recipes={recipes} loaded={loaded} error={error} onOpen={onOpen} onCreate={onCreate} />
+    <AddRecipeFab onClick={onAddRecipe} />
   </div>
 );

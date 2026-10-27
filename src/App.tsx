@@ -14,7 +14,7 @@ import { shareDraftFromParams, type ShareDraft } from './utils/shareImport';
 import { DEFAULT_FILTER, type RecipeFilter } from './utils/recipeFilter';
 import { useLoginUser } from './hooks/useLoginUser';
 import { useCollections } from './hooks/useCollections';
-import { HomeTabs, type HomeView } from './components/collections/HomeTabs';
+import { type HomeView } from './components/collections/HomeTabs';
 import { CollectionsPage } from './components/collections/CollectionsPage';
 import { CollectionDetail } from './components/collections/CollectionDetail';
 import { AddToCollectionSheet } from './components/collections/AddToCollectionSheet';
@@ -218,7 +218,7 @@ const MelaApp: React.FC = () => {
             onAddRecipe={() => setIsAddModalOpen(true)}
             filter={listFilter}
             onFilterChange={setListFilter}
-            tabs={loginUser ? <HomeTabs value="recipes" onChange={setHomeView} /> : undefined}
+            onViewChange={loginUser ? setHomeView : undefined}
             onAddToCollection={loginUser ? setCollectionSheetFor : undefined}
           />
         )}

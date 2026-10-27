@@ -21,6 +21,7 @@ import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import { OverflowMenu } from './OverflowMenu';
+import { SelectBox } from './SelectBox';
 import { Sheet } from './collections/Sheet';
 import { AddRecipeFab, HomeViewToggle, type HomeView } from './collections/HomeTabs';
 import { useLoginUser } from '../hooks/useLoginUser';
@@ -583,17 +584,6 @@ const RecipeRow: React.FC<{
     </div>
   );
 };
-
-const SelectBox: React.FC<{ checked: boolean; className?: string }> = ({ checked, className = '' }) => (
-  <span
-    aria-hidden="true"
-    className={`w-7 h-7 shrink-0 rounded-full border-2 flex items-center justify-center ${
-      checked ? 'bg-[#DE5D4E] border-[#DE5D4E] text-white' : 'bg-white/90 dark:bg-stone-900/80 border-stone-400'
-    } ${className}`}
-  >
-    {checked && <Check className="w-4 h-4" strokeWidth={3} />}
-  </span>
-);
 
 /** Categories and persons as tappable chips; each group allows several choices, none chosen means no filter */
 const FilterSheet: React.FC<{

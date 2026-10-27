@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { ChevronLeft, Clock, LayoutGrid, List as ListIcon, Pencil, Plus, Search, Star, Tag, Trash2, UserPlus, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CheckSquare, ChevronLeft, Clock, LayoutGrid, List as ListIcon, Pencil, Plus, Search, Star, Tag, Trash2, UserPlus, X } from 'lucide-react';
 import type { Collection, Recipe } from '../../types/cook';
 import { cookApi } from '../../services/cookApi';
 import { DEFAULT_FILTER, filterRecipes, formatRating, tagsOf } from '../../utils/recipeFilter';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { AuthenticatedImage } from '../AuthenticatedImage';
 import { OverflowMenu } from '../OverflowMenu';
+import { SelectBox } from '../SelectBox';
 import { AvatarStack } from './Avatars';
 import { NameDialog } from './NameDialog';
 import { AddRecipesSheet } from './AddRecipesSheet';
@@ -42,6 +43,26 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
   const [sharing, setSharing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Paths of the chosen recipes, null while the selection mode is off
+  const [selection, setSelection] = useState<Set<string> | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const selecting = selection !== null;
+  const toggleSelected = (path: string) =>
+    setSelection((prev) => {
+      if (!prev) return prev;
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  const open = (recipe: Recipe) => (selection ? toggleSelected(recipe.path) : onOpenRecipe(recipe));
+
+  useEffect(() => {
+    if (!selecting || confirmRemove) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelection(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting, confirmRemove]);
 
   // Recipes that no longer exist on the server are skipped
   const members = useMemo(() => {
@@ -50,13 +71,19 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
   }, [collection.paths, recipes]);
   const shown = useMemo(() => filterRecipes(members, { ...DEFAULT_FILTER, query }, []), [members, query]);
 
-  const remove = async (recipe: Recipe) => {
+  const removeSelected = async () => {
+    if (!selection) return;
     setError(null);
+    setRemoveBusy(true);
     try {
-      await cookApi.removeFromCollection(collection.id, recipe.path);
-      await onChanged();
+      await Promise.all([...selection].map((path) => cookApi.removeFromCollection(collection.id, path)));
+      setSelection(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Das hat nicht geklappt.');
+    } finally {
+      await onChanged();
+      setRemoveBusy(false);
+      setConfirmRemove(false);
     }
   };
 
@@ -78,6 +105,11 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
         <OverflowMenu
           label="Mehr"
           items={[
+            members.length > 0 && {
+              label: 'Rezepte auswählen',
+              icon: <CheckSquare className="w-4 h-4" />,
+              onClick: () => setSelection(new Set())
+            },
             {
               label: view === 'grid' ? 'Listenansicht' : 'Kachelansicht',
               icon: view === 'grid' ? <ListIcon className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />,
@@ -148,8 +180,13 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
       <div className={view === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-3.5' : 'flex flex-col gap-2.5 mt-3.5'}>
         {view === 'grid' &&
           shown.map((recipe) => (
-            <div key={recipe.path} className="group relative aspect-square rounded-2xl overflow-hidden bg-stone-200 dark:bg-stone-800 border border-stone-200/80 dark:border-stone-800">
-              <button type="button" onClick={() => onOpenRecipe(recipe)} className="absolute inset-0 w-full text-left cursor-pointer">
+            <div
+              key={recipe.path}
+              className={`group relative aspect-square rounded-2xl overflow-hidden bg-stone-200 dark:bg-stone-800 border border-stone-200/80 dark:border-stone-800 ${
+                selection?.has(recipe.path) ? 'ring-2 ring-[#DE5D4E]' : ''
+              }`}
+            >
+              <button type="button" onClick={() => open(recipe)} className="absolute inset-0 w-full text-left cursor-pointer">
                 {recipe.image ? (
                   <AuthenticatedImage
                     src={recipe.image}
@@ -167,15 +204,9 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
                   </span>
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => remove(recipe)}
-                aria-label={`${recipe.name} aus Sammlung entfernen`}
-                title="Aus Sammlung entfernen"
-                className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-black/45 hover:bg-black/65 text-white backdrop-blur-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              {selection && (
+                <SelectBox checked={selection.has(recipe.path)} className="absolute top-2 right-2 pointer-events-none" />
+              )}
             </div>
           ))}
         {view === 'list' && shown.map((recipe) => {
@@ -184,9 +215,13 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
           return (
             <div
               key={recipe.path}
-              className="flex items-center justify-between gap-3 pl-5 pr-3 py-4 rounded-2xl bg-white dark:bg-[#1A1816] border border-stone-200 dark:border-stone-800 shadow-xs hover:border-stone-300 dark:hover:border-stone-700"
+              className={`flex items-center justify-between gap-3 pl-5 pr-4 py-4 rounded-2xl bg-white dark:bg-[#1A1816] border shadow-xs ${
+                selection?.has(recipe.path)
+                  ? 'border-[#DE5D4E] ring-1 ring-[#DE5D4E]'
+                  : 'border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700'
+              }`}
             >
-              <button type="button" onClick={() => onOpenRecipe(recipe)} className="flex-1 min-w-0 text-left cursor-pointer">
+              <button type="button" onClick={() => open(recipe)} className="flex-1 min-w-0 text-left cursor-pointer">
                 <h2 className="font-mela-serif text-lg font-bold leading-tight text-stone-900 dark:text-stone-100 line-clamp-2">
                   {recipe.name}
                 </h2>
@@ -210,15 +245,7 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
                   ) : null}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => remove(recipe)}
-                aria-label={`${recipe.name} aus Sammlung entfernen`}
-                title="Aus Sammlung entfernen"
-                className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
-              >
-                <X className="w-[18px] h-[18px]" />
-              </button>
+              {selection && <SelectBox checked={selection.has(recipe.path)} />}
             </div>
           );
         })}
@@ -232,7 +259,7 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
       <button
         type="button"
         onClick={() => setAdding(true)}
-        className="mt-3 mb-16 h-12 w-full flex items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-dashed border-stone-400 dark:border-stone-600 text-sm font-semibold text-stone-500 dark:text-stone-400 hover:bg-stone-200/40 dark:hover:bg-stone-800/50 cursor-pointer transition-colors"
+        className="mt-3 mb-32 h-12 w-full flex items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-dashed border-stone-400 dark:border-stone-600 text-sm font-semibold text-stone-500 dark:text-stone-400 hover:bg-stone-200/40 dark:hover:bg-stone-800/50 cursor-pointer transition-colors"
       >
         <Plus className="w-4 h-4" />
         Rezepte hinzufügen
@@ -275,6 +302,44 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
             setDeleteBusy(false);
           }
         }}
+      />
+      {selection && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-md p-3 rounded-2xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-xl animate-slideUp">
+          <div className="flex items-center justify-between mb-2.5 pl-1">
+            <span className="text-sm font-medium whitespace-nowrap">{selection.size} ausgewählt</span>
+            <button
+              type="button"
+              onClick={() => setSelection(null)}
+              className="h-8 px-3 rounded-lg text-xs font-medium text-white/80 dark:text-stone-600 cursor-pointer"
+            >
+              Abbrechen
+            </button>
+          </div>
+          <button
+            type="button"
+            disabled={selection.size === 0}
+            onClick={() => setConfirmRemove(true)}
+            className="w-full h-11 rounded-xl bg-[#DE5D4E] text-white text-sm font-semibold disabled:opacity-40 cursor-pointer"
+          >
+            Aus Sammlung entfernen
+          </button>
+        </div>
+      )}
+      <ConfirmDialog
+        isOpen={confirmRemove}
+        title="Aus Sammlung entfernen?"
+        message={
+          <>
+            {selection?.size === 1 ? 'Das Rezept wird' : `${selection?.size ?? 0} Rezepte werden`} aus „{collection.name}“
+            für alle {collection.members.length} {collection.members.length === 1 ? 'Mitglied' : 'Mitglieder'} entfernt.
+            Die Rezepte selbst bleiben erhalten.
+          </>
+        }
+        confirmLabel="Entfernen"
+        busy={removeBusy}
+        error={null}
+        onCancel={() => setConfirmRemove(false)}
+        onConfirm={removeSelected}
       />
       {adding && (
         <AddRecipesSheet collection={collection} recipes={recipes} onClose={() => setAdding(false)} onChanged={onChanged} />

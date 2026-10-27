@@ -22,6 +22,7 @@ const STORAGE_KEYS = {
   WAKE_LOCK: 'cook_wake_lock_enabled',
   THEME: 'cook_theme',
   LIST_VIEW: 'cook_list_view',
+  COLLECTION_VIEW: 'cook_collection_view',
   HOME_VIEW: 'cook_home_view',
   RECIPES_CACHE: 'cook_recipes_cache_v6',
   RECIPE_DETAIL_PREFIX: 'cook_recipe_detail_v6_',
@@ -467,6 +468,23 @@ class CookApiService {
   public setListView(view: 'grid' | 'list'): void {
     try {
       localStorage.setItem(STORAGE_KEYS.LIST_VIEW, view);
+    } catch {
+      // Ignore
+    }
+  }
+
+  /** Layout inside a collection: image tiles (default) or compact rows */
+  public getCollectionView(): 'grid' | 'list' {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.COLLECTION_VIEW) === 'list' ? 'list' : 'grid';
+    } catch {
+      return 'grid';
+    }
+  }
+
+  public setCollectionView(view: 'grid' | 'list'): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.COLLECTION_VIEW, view);
     } catch {
       // Ignore
     }

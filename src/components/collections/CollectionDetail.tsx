@@ -3,6 +3,7 @@ import { CheckSquare, ChevronLeft, Clock, LayoutGrid, List as ListIcon, Pencil, 
 import type { Collection, Recipe } from '../../types/cook';
 import { cookApi } from '../../services/cookApi';
 import { DEFAULT_FILTER, filterRecipes, formatRating, tagsOf } from '../../utils/recipeFilter';
+import { useBackLayer } from '../../hooks/useBackLayer';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { AuthenticatedImage } from '../AuthenticatedImage';
 import { OverflowMenu } from '../OverflowMenu';
@@ -48,6 +49,9 @@ export const CollectionDetail: React.FC<CollectionDetailProps> = ({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removeBusy, setRemoveBusy] = useState(false);
   const selecting = selection !== null;
+  useBackLayer(selecting, () => setSelection(null));
+  useBackLayer(adding, () => setAdding(false));
+  useBackLayer(sharing, () => setSharing(false));
   const toggleSelected = (path: string) =>
     setSelection((prev) => {
       if (!prev) return prev;

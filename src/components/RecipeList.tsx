@@ -25,6 +25,7 @@ import { SelectBox } from './SelectBox';
 import { Sheet } from './collections/Sheet';
 import { AddRecipeFab, HomeViewToggle, type HomeView } from './collections/HomeTabs';
 import { useLoginUser } from '../hooks/useLoginUser';
+import { useBackLayer } from '../hooks/useBackLayer';
 import {
   DEFAULT_FILTER,
   FAVORITES,
@@ -135,6 +136,8 @@ export const RecipeList: React.FC<RecipeListProps> = ({
 
   const filterCount = filter.category.length + filter.creator.length;
   const [filterOpen, setFilterOpen] = useState(false);
+  useBackLayer(filterOpen, () => setFilterOpen(false));
+  useBackLayer(selection !== null, () => setSelection(null));
   const statusLabel = status === 'connected' ? 'Online' : status === 'checking' ? 'Verbinde…' : 'Offline';
 
   return (

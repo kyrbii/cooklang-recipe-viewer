@@ -1,4 +1,4 @@
-import type { ConnectionStatus, Recipe, RecipeDraft, RecipeReviews, UpdateRecipeResult } from '../types/cook';
+import type { Collection, ConnectionStatus, Recipe, RecipeDraft, RecipeReviews, UpdateRecipeResult } from '../types/cook';
 import { PARSER_VERSION, parseCooklangText } from '../utils/cooklangParser';
 import { API_URL } from '../config';
 
@@ -10,6 +10,8 @@ import { API_URL } from '../config';
  *   POST /import           AI import (web page, text or photo → Cooklang), needs a login token
  *   GET  /recipe-reviews/{path}  ratings and notes of all people (public)
  *   PUT  /recipe-reviews/{path}  set the signed-in person's rating and note, needs a login token
+ *   GET/POST /collections, PATCH/DELETE /collections/{id}, PUT/DELETE .../recipes/{path} and .../members/{name}
+ *                          collections of the signed-in person, all need a login token
  *   POST /login, /logout   bearer token
  */
 
@@ -20,6 +22,7 @@ const STORAGE_KEYS = {
   WAKE_LOCK: 'cook_wake_lock_enabled',
   THEME: 'cook_theme',
   LIST_VIEW: 'cook_list_view',
+  HOME_VIEW: 'cook_home_view',
   RECIPES_CACHE: 'cook_recipes_cache_v6',
   RECIPE_DETAIL_PREFIX: 'cook_recipe_detail_v6_',
   FAVORITES: 'cook_favorites',
@@ -328,6 +331,110 @@ class CookApiService {
 
   public getAuthHeaders(): Record<string, string> {
     return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  }
+
+  // ---- Collections ----
+
+  /** Which page opens first: all recipes or the person's collections */
+  public getHomeView(): 'recipes' | 'collections' {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.HOME_VIEW) === 'collections' ? 'collections' : 'recipes';
+    } catch {
+      return 'recipes';
+    }
+  }
+
+  public setHomeView(view: 'recipes' | 'collections'): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.HOME_VIEW, view);
+    } catch {
+      // Ignore
+    }
+  }
+
+  /** Request to /collections with the token (reads need it too, unlike recipes). Throws with a readable message. */
+  private async collectionRequest(path: string, method: string, body?: unknown): Promise<Response> {
+    if (!this.isLoggedIn()) throw new Error('Für Sammlungen bitte anmelden.');
+    let res: Response;
+    try {
+      res = await this.fetchApi(
+        `collections${path}`,
+        {
+          method,
+          headers: { ...this.getAuthHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+          body: body === undefined ? undefined : JSON.stringify(body)
+        },
+        8000
+      );
+    } catch {
+      this.setStatus('disconnected');
+      throw new Error('Server nicht erreichbar.');
+    }
+    if (res.ok) return res;
+    if (res.status === 401) {
+      this.clearSession();
+      throw new Error('Du bist nicht angemeldet.');
+    }
+    if (res.status === 404) throw new Error('Nicht gefunden. Vielleicht wurde die Sammlung inzwischen gelöscht.');
+    if (res.status === 422) throw new Error('Der Name muss 1 bis 100 Zeichen lang sein.');
+    throw new Error(`Server-Fehler (HTTP ${res.status}).`);
+  }
+
+  private static toCollection(raw: {
+    id: number;
+    name: string;
+    created_by: string | null;
+    members: string[];
+    paths: string[];
+  }): Collection {
+    return { id: raw.id, name: raw.name, createdBy: raw.created_by, members: raw.members, paths: raw.paths };
+  }
+
+  public async listCollections(): Promise<Collection[]> {
+    const res = await this.collectionRequest('', 'GET');
+    const data = (await res.json()) as { collections: Parameters<typeof CookApiService.toCollection>[0][] };
+    return data.collections.map(CookApiService.toCollection);
+  }
+
+  public async createCollection(name: string): Promise<Collection> {
+    const res = await this.collectionRequest('', 'POST', { name });
+    return CookApiService.toCollection(await res.json());
+  }
+
+  public async renameCollection(id: number, name: string): Promise<void> {
+    await this.collectionRequest(`/${id}`, 'PATCH', { name });
+  }
+
+  /** Deletes the collection for all members. The recipes stay. */
+  public async deleteCollection(id: number): Promise<void> {
+    await this.collectionRequest(`/${id}`, 'DELETE');
+  }
+
+  public async addToCollection(id: number, recipePath: string): Promise<void> {
+    await this.collectionRequest(`/${id}/recipes/${encodeRecipePath(recipePath)}`, 'PUT');
+  }
+
+  public async removeFromCollection(id: number, recipePath: string): Promise<void> {
+    await this.collectionRequest(`/${id}/recipes/${encodeRecipePath(recipePath)}`, 'DELETE');
+  }
+
+  /** Invites an existing account. Throws "Benutzer nicht gefunden" for an unknown name. */
+  public async addCollectionMember(id: number, username: string): Promise<void> {
+    const name = username.trim().toLowerCase();
+    if (!name) throw new Error('Bitte einen Benutzernamen eingeben.');
+    try {
+      await this.collectionRequest(`/${id}/members/${encodeURIComponent(name)}`, 'PUT');
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Nicht gefunden')) {
+        throw new Error(`Den Benutzer „${name}“ gibt es nicht.`);
+      }
+      throw err;
+    }
+  }
+
+  /** Removes a member. With the own name this leaves the collection. */
+  public async removeCollectionMember(id: number, username: string): Promise<void> {
+    await this.collectionRequest(`/${id}/members/${encodeURIComponent(username)}`, 'DELETE');
   }
 
   // ---- Settings ----

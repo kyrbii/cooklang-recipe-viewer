@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, RefreshCw, Sun, Moon, CheckCircle2, Lock, LogOut, LogIn, Trash2, ShieldCheck } from 'lucide-react';
+import { Folder, List, X, RefreshCw, Sun, Moon, CheckCircle2, Lock, LogOut, LogIn, Trash2, ShieldCheck } from 'lucide-react';
 import { cookApi } from '../services/cookApi';
 import { useLoginUser } from '../hooks/useLoginUser';
 import { LoginDialog } from './LoginDialog';
@@ -21,6 +21,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, s
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [theme, setThemeState] = useState<'dark' | 'light'>(() => cookApi.getTheme());
+  const [homeView, setHomeViewState] = useState<'recipes' | 'collections'>(() => cookApi.getHomeView());
   const [feedback, setFeedback] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -170,6 +171,45 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({ isOpen, onClose, s
               <div className="p-2.5 rounded-xl text-xs flex items-center gap-2 bg-stone-100 dark:bg-stone-900 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-800">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-[#DE5D4E]" />
                 <span>{feedback}</span>
+              </div>
+            )}
+
+            {/* Startseite: only with an account, collections belong to a person */}
+            {loggedInAs && (
+              <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-3">
+                <div>
+                  <span className="text-sm font-semibold text-stone-800 dark:text-stone-200">Startseite</span>
+                  <p className="text-xs text-stone-500">
+                    Was du beim Öffnen der App zuerst siehst. Sammlungen gibt es nur mit Anmeldung.
+                  </p>
+                </div>
+                <div role="radiogroup" aria-label="Startseite" className="grid grid-cols-2 gap-0.5 p-[3px] rounded-xl bg-stone-200/60 dark:bg-stone-800">
+                  {(
+                    [
+                      ['recipes', 'Alle Rezepte', List],
+                      ['collections', 'Sammlungen', Folder]
+                    ] as const
+                  ).map(([view, label, Icon]) => (
+                    <button
+                      key={view}
+                      type="button"
+                      role="radio"
+                      aria-checked={homeView === view}
+                      onClick={() => {
+                        setHomeViewState(view);
+                        cookApi.setHomeView(view);
+                      }}
+                      className={`h-[38px] rounded-[9px] text-sm flex items-center justify-center gap-[7px] cursor-pointer transition-colors ${
+                        homeView === view
+                          ? 'bg-white dark:bg-[#1A1816] text-stone-900 dark:text-white font-semibold shadow-sm'
+                          : 'text-stone-500 dark:text-stone-400 font-medium'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

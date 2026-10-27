@@ -14,7 +14,8 @@ import {
   UserRound,
   ChevronDown,
   Check,
-  Star
+  Star,
+  CheckSquare
 } from 'lucide-react';
 import type { ConnectionStatus, Recipe } from '../types/cook';
 import { cookApi } from '../services/cookApi';
@@ -42,6 +43,10 @@ interface RecipeListProps {
   onAddRecipe: () => void;
   filter: RecipeFilter;
   onFilterChange: (filter: RecipeFilter) => void;
+  /** "Alle Rezepte / Sammlungen" switch, only given when signed in */
+  tabs?: React.ReactNode;
+  /** Given when signed in: enables the selection mode that adds several recipes to collections at once */
+  onAddToCollection?: (recipes: Recipe[]) => void;
 }
 
 export const RecipeList: React.FC<RecipeListProps> = ({
@@ -54,7 +59,9 @@ export const RecipeList: React.FC<RecipeListProps> = ({
   onOpenSettings,
   onAddRecipe,
   filter,
-  onFilterChange
+  onFilterChange,
+  tabs,
+  onAddToCollection
 }) => {
   const loginUser = useLoginUser();
   const searchQuery = filter.query;
@@ -68,6 +75,15 @@ export const RecipeList: React.FC<RecipeListProps> = ({
     cookApi.setListView(view);
   };
   const [favorites, setFavorites] = useState<string[]>(() => cookApi.getFavorites());
+  // Paths of the chosen recipes, null while the selection mode is off
+  const [selection, setSelection] = useState<Set<string> | null>(null);
+  const toggleSelected = (path: string) =>
+    setSelection((prev) => {
+      if (!prev) return prev;
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   // Shows the "back to top" button once the search bar has scrolled out of view
@@ -86,6 +102,13 @@ export const RecipeList: React.FC<RecipeListProps> = ({
     cookApi.toggleFavorite(recipeId);
     setFavorites(cookApi.getFavorites());
   };
+
+  useEffect(() => {
+    if (!selection) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelection(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selection !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcut: pressing "/" focuses search on desktop
   useEffect(() => {
@@ -186,6 +209,23 @@ export const RecipeList: React.FC<RecipeListProps> = ({
             </button>
           </div>
 
+          {onAddToCollection && recipes.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelection(selection ? null : new Set())}
+              aria-pressed={selection !== null}
+              className={`h-9 px-3 rounded-full flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all cursor-pointer ${
+                selection
+                  ? 'bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900'
+                  : 'bg-stone-200/60 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+              }`}
+              title="Rezepte auswählen"
+            >
+              <CheckSquare className="w-4 h-4" />
+              <span className="hidden sm:inline">Auswählen</span>
+            </button>
+          )}
+
           {/* Add Recipe Button */}
           <button
             onClick={onAddRecipe}
@@ -206,6 +246,8 @@ export const RecipeList: React.FC<RecipeListProps> = ({
           </button>
         </div>
       </div>
+
+      {tabs ?? <div className="h-1" />}
 
       {/* Search Bar with Desktop "/" hint */}
       <div ref={searchBarRef} className="relative mb-4 sm:mb-5">
@@ -312,9 +354,10 @@ export const RecipeList: React.FC<RecipeListProps> = ({
               <RecipeCard
                 key={recipe.id || recipe.path}
                 recipe={recipe}
+                selected={selection ? selection.has(recipe.path) : undefined}
                 isFavorite={favorites.includes(recipe.id)}
                 onToggleFavorite={(e) => handleToggleFavorite(recipe.id, e)}
-                onClick={() => onSelectRecipe(recipe)}
+                onClick={() => (selection ? toggleSelected(recipe.path) : onSelectRecipe(recipe))}
               />
             ))}
           </div>
@@ -325,15 +368,41 @@ export const RecipeList: React.FC<RecipeListProps> = ({
               <RecipeRow
                 key={recipe.id || recipe.path}
                 recipe={recipe}
+                selected={selection ? selection.has(recipe.path) : undefined}
                 isFavorite={favorites.includes(recipe.id)}
                 onToggleFavorite={(e) => handleToggleFavorite(recipe.id, e)}
-                onClick={() => onSelectRecipe(recipe)}
+                onClick={() => (selection ? toggleSelected(recipe.path) : onSelectRecipe(recipe))}
               />
             ))}
           </div>
         )}
       </div>
-      {searchBarHidden && (
+      {selection && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-md p-3 rounded-2xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-xl animate-slideUp">
+          <div className="flex items-center justify-between mb-2.5 pl-1">
+            <span className="text-sm font-medium whitespace-nowrap">{selection.size} ausgewählt</span>
+            <button
+              type="button"
+              onClick={() => setSelection(null)}
+              className="h-8 px-3 rounded-lg text-xs font-medium text-white/80 dark:text-stone-600 cursor-pointer"
+            >
+              Abbrechen
+            </button>
+          </div>
+          <button
+            type="button"
+            disabled={selection.size === 0}
+            onClick={() => {
+              onAddToCollection?.(recipes.filter((r) => selection.has(r.path)));
+              setSelection(null);
+            }}
+            className="w-full h-11 rounded-xl bg-[#DE5D4E] text-white text-sm font-semibold disabled:opacity-40 cursor-pointer"
+          >
+            Zu Sammlung hinzufügen
+          </button>
+        </div>
+      )}
+      {searchBarHidden && !selection && (
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -351,9 +420,10 @@ export const RecipeList: React.FC<RecipeListProps> = ({
 const RecipeCard: React.FC<{
   recipe: Recipe;
   isFavorite: boolean;
+  selected?: boolean;
   onToggleFavorite: (e: React.MouseEvent) => void;
   onClick: () => void;
-}> = ({ recipe, isFavorite, onToggleFavorite, onClick }) => {
+}> = ({ recipe, isFavorite, selected, onToggleFavorite, onClick }) => {
   const time =
     recipe.metadata.total_time ||
     recipe.metadata.cook_time ||
@@ -367,8 +437,9 @@ const RecipeCard: React.FC<{
   return (
     <div
       onClick={onClick}
-      className="group flex flex-col cursor-pointer transition-all duration-300 rounded-2xl bg-white dark:bg-[#1A1816] border border-stone-200/80 dark:border-stone-800/80 hover:border-stone-300 dark:hover:border-stone-700 shadow-xs hover:shadow-xl hover:-translate-y-1.5 overflow-hidden"
+      className={`group relative flex flex-col cursor-pointer transition-all duration-300 rounded-2xl ${selected ? 'ring-2 ring-[#DE5D4E]' : ''} bg-white dark:bg-[#1A1816] border border-stone-200/80 dark:border-stone-800/80 hover:border-stone-300 dark:hover:border-stone-700 shadow-xs hover:shadow-xl hover:-translate-y-1.5 overflow-hidden`}
     >
+      {selected !== undefined && <SelectBox checked={selected} className="absolute top-3 right-3 z-10" />}
       {/* Thumbnail: recipes without a photo get a compact card with the pill and heart in the text area */}
       {recipe.image && (
         <div className="w-full aspect-[16/10] overflow-hidden bg-stone-200 dark:bg-stone-800 relative">
@@ -390,7 +461,7 @@ const RecipeCard: React.FC<{
           </span>
 
           {/* Favorite Button */}
-          <button
+          {selected === undefined && <button
             type="button"
             onClick={onToggleFavorite}
             className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer backdrop-blur-md ${
@@ -401,7 +472,7 @@ const RecipeCard: React.FC<{
             title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
           >
             <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
-          </button>
+          </button>}
         </div>
       )}
 
@@ -413,7 +484,7 @@ const RecipeCard: React.FC<{
               <span className="px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-[11px] font-semibold text-stone-600 dark:text-stone-400 uppercase tracking-wider truncate">
                 {category}
               </span>
-              <button
+              {selected === undefined ? <button
                 type="button"
                 onClick={onToggleFavorite}
                 className={`-mr-1.5 w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-all cursor-pointer ${
@@ -424,7 +495,7 @@ const RecipeCard: React.FC<{
                 title={isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
               >
                 <Heart className={`w-4 h-4 ${isFavorite ? 'fill-[#DE5D4E]' : ''}`} />
-              </button>
+              </button> : <span className="w-8 h-8" />}
             </div>
           )}
           <h2 className="font-mela-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-2 group-hover:text-[#DE5D4E] transition-colors mb-1">
@@ -461,9 +532,10 @@ const RecipeCard: React.FC<{
 const RecipeRow: React.FC<{
   recipe: Recipe;
   isFavorite: boolean;
+  selected?: boolean;
   onToggleFavorite: (e: React.MouseEvent) => void;
   onClick: () => void;
-}> = ({ recipe, isFavorite, onToggleFavorite, onClick }) => {
+}> = ({ recipe, isFavorite, selected, onToggleFavorite, onClick }) => {
   const time =
     recipe.metadata.total_time ||
     recipe.metadata.cook_time ||
@@ -477,7 +549,7 @@ const RecipeRow: React.FC<{
   return (
     <div
       onClick={onClick}
-      className="p-5 sm:p-6 flex items-center gap-5 sm:gap-6 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group"
+      className={`${selected ? 'ring-2 ring-[#DE5D4E] ' : ''}p-5 sm:p-6 flex items-center gap-5 sm:gap-6 cursor-pointer active:scale-[0.99] transition-all bg-white dark:bg-[#1A1816] rounded-2xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xs hover:border-stone-300 dark:hover:border-stone-700 hover:shadow-md hover:-translate-y-0.5 group`}
     >
       {recipe.image && (
         <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-stone-200 dark:bg-stone-800 shrink-0 shadow-xs relative border border-stone-100 dark:border-stone-800/60">
@@ -525,7 +597,9 @@ const RecipeRow: React.FC<{
         )}
       </div>
 
-      {/* Favorite Button */}
+      {selected !== undefined ? (
+        <SelectBox checked={selected} className="mr-2" />
+      ) : (
       <button
         type="button"
         onClick={onToggleFavorite}
@@ -542,9 +616,21 @@ const RecipeRow: React.FC<{
           }`}
         />
       </button>
+      )}
     </div>
   );
 };
+
+const SelectBox: React.FC<{ checked: boolean; className?: string }> = ({ checked, className = '' }) => (
+  <span
+    aria-hidden="true"
+    className={`w-7 h-7 shrink-0 rounded-full border-2 flex items-center justify-center ${
+      checked ? 'bg-[#DE5D4E] border-[#DE5D4E] text-white' : 'bg-white/90 dark:bg-stone-900/80 border-stone-400'
+    } ${className}`}
+  >
+    {checked && <Check className="w-4 h-4" strokeWidth={3} />}
+  </span>
+);
 
 /** Dropdown with checkboxes, styled like the search field. Nothing selected means no filter. */
 const FilterMultiSelect: React.FC<{

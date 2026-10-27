@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Minus,
   Plus,
+  FolderPlus,
   Heart,
   Share2,
   CookingPot,
@@ -48,6 +49,8 @@ interface RecipeDetailProps {
   onBack: () => void;
   onOpenSettings: () => void;
   onEdit: () => void;
+  /** Opens the "Zu Sammlung hinzufügen" sheet, only given when signed in */
+  onAddToCollection?: () => void;
   /** Called with the path after the recipe was deleted on the server */
   onDeleted: (path: string) => void;
   /** Called after the signed-in person rated the recipe, with the new average */
@@ -65,6 +68,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
   onBack,
   onOpenSettings,
   onEdit,
+  onAddToCollection,
   onDeleted,
   onReviewsChanged
 }) => {
@@ -345,6 +349,17 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
               >
                 <Pencil className="w-3.5 h-3.5 text-[#DE5D4E]" />
                 <span>Bearbeiten</span>
+              </button>
+            )}
+
+            {loginUser && onAddToCollection && (
+              <button
+                onClick={onAddToCollection}
+                className="w-9 h-9 flex items-center justify-center rounded-full text-stone-700 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 active:scale-95 cursor-pointer"
+                title="Zu Sammlung hinzufügen"
+                aria-label="Zu Sammlung hinzufügen"
+              >
+                <FolderPlus className="w-4 h-4" />
               </button>
             )}
 

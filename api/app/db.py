@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from . import recipe_meta
+from . import collections, recipe_meta
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -34,6 +34,6 @@ def init(db_path: Path) -> None:
     conn = connect(db_path)
     try:
         conn.execute("PRAGMA journal_mode = WAL")
-        conn.executescript(SCHEMA + recipe_meta.SCHEMA)
+        conn.executescript(SCHEMA + recipe_meta.SCHEMA + collections.SCHEMA)
     finally:
         conn.close()

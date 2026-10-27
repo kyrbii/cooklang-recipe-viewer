@@ -13,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import ai_import, auth, db, recipe_meta
+from . import ai_import, auth, collections, db, recipe_meta
 from .config import Settings, load_settings
 from pathlib import Path
 from urllib.parse import quote
@@ -77,6 +77,24 @@ class ReviewRequest(BaseModel):
     note: str | None = Field(default=None, max_length=recipe_meta.NOTE_MAX_LENGTH)
 
 
+class CollectionName(BaseModel):
+    name: str = Field(min_length=1, max_length=collections.NAME_MAX_LENGTH)
+
+
+class CollectionItem(BaseModel):
+    id: int
+    name: str
+    # Who created it; None if that account is gone. Has no special rights
+    created_by: str | None
+    members: list[str]
+    # Paths of the recipes in it, in the order they were added
+    paths: list[str]
+
+
+class CollectionList(BaseModel):
+    collections: list[CollectionItem]
+
+
 class PhotoResponse(BaseModel):
     path: str
     image: str
@@ -110,7 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
-        allow_methods=["GET", "PUT", "POST", "DELETE"],
+        allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "If-Match"],
         expose_headers=["ETag"],
     )
@@ -289,6 +307,85 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return Response(current, status_code=412, media_type=TEXT, headers={"ETag": current_tag})
             await run_in_threadpool(store.delete, file)
             recipe_meta.forget_recipe(conn, clean)
+            collections.forget_recipe(conn, clean)
+        return Response(status_code=204)
+
+    def collection_item(c: collections.Collection) -> CollectionItem:
+        return CollectionItem(**asdict(c))
+
+    def member_collection(conn: sqlite3.Connection, collection_id: int, user: str) -> None:
+        """Collections are private to their members: for anyone else they do not exist."""
+        if not collections.is_member(conn, collection_id, user):
+            raise HTTPException(404, "collection not found")
+
+    def clean_name(name: str) -> str:
+        name = " ".join(name.split())
+        if not name:
+            raise HTTPException(422, "name must not be empty")
+        return name
+
+    @app.get("/collections", response_model=CollectionList)
+    def list_collections(conn: Conn, user: Annotated[str, Depends(require_user)]):
+        return CollectionList(collections=[collection_item(c) for c in collections.for_user(conn, user)])
+
+    @app.post("/collections", response_model=CollectionItem, status_code=201)
+    def create_collection(body: CollectionName, conn: Conn, user: Annotated[str, Depends(require_user)]):
+        collection_id = collections.create(conn, user, clean_name(body.name))
+        return collection_item(collections.get(conn, collection_id))
+
+    @app.patch("/collections/{collection_id}", response_model=CollectionItem)
+    def rename_collection(
+        collection_id: int, body: CollectionName, conn: Conn, user: Annotated[str, Depends(require_user)]
+    ):
+        member_collection(conn, collection_id, user)
+        collections.rename(conn, collection_id, clean_name(body.name))
+        return collection_item(collections.get(conn, collection_id))
+
+    @app.delete("/collections/{collection_id}", status_code=204)
+    def delete_collection(collection_id: int, conn: Conn, user: Annotated[str, Depends(require_user)]):
+        """Deletes the collection for all its members. The recipes in it stay."""
+        member_collection(conn, collection_id, user)
+        collections.delete(conn, collection_id)
+        return Response(status_code=204)
+
+    @app.put("/collections/{collection_id}/recipes/{path:path}", status_code=204)
+    def add_collection_recipe(
+        collection_id: int, path: str, conn: Conn, user: Annotated[str, Depends(require_user)]
+    ):
+        member_collection(conn, collection_id, user)
+        clean, file = resolve(path)
+        if not file.is_file():
+            raise HTTPException(404, "recipe not found")
+        collections.add_recipe(conn, collection_id, clean)
+        return Response(status_code=204)
+
+    @app.delete("/collections/{collection_id}/recipes/{path:path}", status_code=204)
+    def remove_collection_recipe(
+        collection_id: int, path: str, conn: Conn, user: Annotated[str, Depends(require_user)]
+    ):
+        member_collection(conn, collection_id, user)
+        clean, _ = resolve(path)
+        collections.remove_recipe(conn, collection_id, clean)
+        return Response(status_code=204)
+
+    @app.put("/collections/{collection_id}/members/{username}", status_code=204)
+    def add_collection_member(
+        collection_id: int, username: str, conn: Conn, user: Annotated[str, Depends(require_user)]
+    ):
+        member_collection(conn, collection_id, user)
+        name = auth.normalize_username(username)
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (name,)).fetchone() is None:
+            raise HTTPException(404, "user not found")
+        collections.add_member(conn, collection_id, name)
+        return Response(status_code=204)
+
+    @app.delete("/collections/{collection_id}/members/{username}", status_code=204)
+    def remove_collection_member(
+        collection_id: int, username: str, conn: Conn, user: Annotated[str, Depends(require_user)]
+    ):
+        """Removes a member, or leaves the collection when it is the signed-in person. The last one to go deletes it."""
+        member_collection(conn, collection_id, user)
+        collections.remove_member(conn, collection_id, auth.normalize_username(username))
         return Response(status_code=204)
 
     def reviews_response(conn: sqlite3.Connection, path: str) -> ReviewsResponse:

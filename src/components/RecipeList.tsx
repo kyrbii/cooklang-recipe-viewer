@@ -146,7 +146,17 @@ export const RecipeList: React.FC<RecipeListProps> = ({
       <div className="flex items-center justify-between pt-2 pb-3">
         <div>
           <h1 className="font-mela-serif text-3xl sm:text-4xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-            {title}
+            <button
+              type="button"
+              onClick={() => {
+                onFilterChange(DEFAULT_FILTER);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              title="Alle Rezepte"
+              className="font-[inherit] cursor-pointer"
+            >
+              {title}
+            </button>
           </h1>
           <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 flex items-center gap-1.5">
             <span>
